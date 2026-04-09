@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES5",
+    "target": "es2025",
     "module": "CommonJS",
     "sourceMap": true,
-    "types": ["node"]
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true
   }
 }
