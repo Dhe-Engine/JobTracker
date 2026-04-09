@@ -4,6 +4,8 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto"; //built into node - no install needed
 import { config } from "../core/config";
 import { db } from "../db/client";
+import { oauth2 } from "googleapis/build/src/apis/oauth2";
+import { email } from "zod";
 
 
 /*
@@ -56,7 +58,7 @@ export function encryptToken(plaintext: string): string {
 
     const authTag = cipher.getAuthTag();
 
-    return `$ {iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
+    return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
 }
 
 /*
@@ -71,7 +73,7 @@ check if:
 */
 
 export function decryptToken(stored: string): string {
-    const [ivHex, authTagHex, encrypted] = stored.split("");
+    const [ivHex, authTagHex, encrypted] = stored.split(":");
 
     const decipher = crypto.createDecipheriv(
         ALGORITHM,
@@ -105,3 +107,88 @@ export function getGoogleAuthUrl(): string {
         }
     );
 }
+
+/* 
+step 2: handle google oauth callback
+
+handles the google oauth callback for login/signup
+
+This function takes the one-time authorization code from Google,
+completes the OAuth flow, and sets up the user session.
+
+responsibilities:
+    1. exchange authorization code for tokens
+    2. fetch user google profile
+    3. upsert user into database
+    4. issue application jwt session
+*/
+
+export async function handleGooglecallback(code:string) {
+    const { tokens } = await OAuthClient.getToken(code);
+
+    if (!tokens.access_token || !tokens.refresh_token){
+        //refresh token is important for long time access
+        throw new Error("Missing required oauth tokens");
+    }
+
+    OAuthClient.setCredentials(tokens);
+
+    //retrieve authenticated user profile
+    const oauth = google.oauth2({version:"v2", auth: OAuthClient});
+    const { data: googleUser } = await oauth.userinfo.get();
+
+    if(!googleUser.id || !googleUser.email) {
+        throw new Error("invalid google user profile response");
+    }
+
+    //database upsert (user creation)
+    const { data: user, error } = await db
+        .from("users")
+        .upsert(
+            {
+                google_id: googleUser.id,
+                email: googleUser.email,
+                name: googleUser.name ?? googleUser.email,
+                avatar_url: googleUser.picture ?? null,
+
+                //persist encrypted oauth credentials 
+                gmail_token: encryptToken(
+                    JSON.stringify(
+                        {
+                            access_token: tokens.access_token,
+                            refresh_token: tokens.refresh_token,
+                            expiry_data: tokens.expiry_date,
+                        }
+                    )
+                ),
+
+                timezone: "UTC",
+                notifications_disabled: true,
+            },
+            {
+                onConflict: "google_id", //ensure uniqueness at db level
+                ignoreDuplicates: false, //enforce update on conflict
+            }
+        )
+        .select()
+        .single();
+
+        if(error || !user) {
+            throw new Error(`user upsert failed: ${error?.message}`);
+        }
+
+        //issue application jwt (stateless session)
+        const sessionToken = jwt.sign(
+            {
+                userId: user.id,
+                email: user.email,
+            },
+            config.jwt.secret,
+            {
+                expiresIn: config.jwt.expiresIn as jwt.SignOptions["expiresIn"],
+            }
+        );
+
+        return {user, sessionToken};
+}
+
