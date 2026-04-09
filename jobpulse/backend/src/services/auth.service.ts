@@ -86,3 +86,22 @@ export function decryptToken(stored: string): string {
 
     return decrypted
 }
+
+/*
+oauth flow: step 1 - generate consent url
+
+redirects user to google oauth screen
+key flags:
+    - access_type = offline -> to ensure refresh_token is issued
+    - prompt = consent -> forces refresh_token on repeated logins
+*/
+
+export function getGoogleAuthUrl(): string {
+    return OAuthClient.generateAuthUrl(
+        {
+            access_type: "offline",
+            prompt: "consent",
+            scope: [...config.google.scopes],
+        }
+    );
+}
