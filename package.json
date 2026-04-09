@@ -1,9 +1,13 @@
 {
   "dependencies": {
     "@supabase/supabase-js": "^2.102.1",
+    "google-auth-library": "^10.6.2",
+    "googleapis": "^171.4.0",
+    "jsonwebtoken": "^9.0.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.5.2"
   }
 }
