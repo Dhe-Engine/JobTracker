@@ -20,3 +20,69 @@ const OAuthClient = new OAuth2Client(
     config.google.clientSecret,
     config.google.redirectUri
 )
+
+//token encryption 
+
+/*uses authentication encryption to ensure:
+    - confidentiality that the data cannot be read without the key
+    - integrity, tampering causes decryption failure
+*/
+
+//storage format: iv: authTag:cipherText (hex-coded)
+const ALGORITHM = "aes-256-gcm";
+
+
+/*
+encrypt sensitive token payload before database persistence
+
+security properties:
+    - random iv to ensure non-deterministic ciphertext
+    - auth tag guarantees tamper detection
+
+ @param plaintext - JSON string containing OAuth tokens
+ @returns serialized encrypted payload
+*/
+export function encryptToken(plaintext: string): string {
+    const iv = crypto.randomBytes(16);
+
+    const cipher = crypto.createCipheriv(
+        ALGORITHM,
+        Buffer.from(config.encryption.key),
+        iv
+    );
+
+    let encrypted = cipher.update(plaintext, "utf8", "hex");
+    encrypted += cipher.final("hex");
+
+    const authTag = cipher.getAuthTag();
+
+    return `$ {iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
+}
+
+/*
+decrypt token payload retrieved from storage
+
+check if:
+    - data is corrupted
+    - auth tag validation fails (tampering detected)
+
+@params stored - serialized encrypted payload
+@returns decrypted plaintext string
+*/
+
+export function decryptToken(stored: string): string {
+    const [ivHex, authTagHex, encrypted] = stored.split("");
+
+    const decipher = crypto.createDecipheriv(
+        ALGORITHM,
+        Buffer.from(config.encryption.key),
+        Buffer.from(ivHex, "hex")
+    );
+
+    decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+
+    return decrypted
+}
