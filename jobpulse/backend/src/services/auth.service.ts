@@ -192,3 +192,66 @@ export async function handleGooglecallback(code:string) {
         return {user, sessionToken};
 }
 
+/* 
+verify jwt session token
+
+this function checks if a jwt is valid and returns the payload
+
+its function:
+    - used in auth middleware to protect requests
+    - returns decoded payload(userid, email)
+    - throws error if invalid or expired
+*/
+
+export function verifySessionToken(token: string){
+    return jwt.verify(token,config.jwt.secret) as {
+        userId: string;
+        email: string
+    };
+}
+
+
+/*
+gmail client for a user
+
+returns an authenticated gmail oauth client for a user
+
+responsibilities:
+    1. feth and decrypt stored gmail tokens from the database
+    2. create an oauth client with the user's information, ready to make gmail api calls
+    3. automatically handle token refresh and updates db if expired 
+*/
+
+export async function getGmailClientForUser(userId: string) {
+    const {data: user, error} = await db.from("users").
+    select("gmail_token, timezone").
+    eq("id",userId).
+    single();
+
+    if (error || user?.gmail_token){
+        throw new Error("User has no connected gmail account");
+    }
+
+    const tokenData = JSON.parse(decryptToken(user.gmail_token));
+
+    const userOauthClient = new OAuth2Client(
+        config.google.clientId,
+        config.google.clientSecret,
+        config.google.redirectUri
+    );
+
+    userOauthClient.setCredentials(tokenData);
+
+    //listen for token refresh and save new tokens
+    userOauthClient.on("tokens", async(newTokens) => {
+        if (newTokens.access_token) {
+            const updated = {...tokenData, ...newTokens};
+            await db
+                .from("users")
+                .update({gmail_token:encryptToken(JSON.stringify(updated))})
+                .eq("id",userId);
+        }
+    });
+
+    return {client: userOauthClient, timezone: user.timezone}
+}
