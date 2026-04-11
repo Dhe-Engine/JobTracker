@@ -62,7 +62,7 @@ export async function authRoutes(app: FastifyInstance) {
 
             //step 2: check for missing authorization code
             if(!req.query.code){
-                return reply.redirect(`${config.frontend.url}/?error = missing_code`);
+                return reply.redirect(`${config.frontend.url}/?error=missing_code`);
             }
 
             try{
@@ -83,7 +83,7 @@ export async function authRoutes(app: FastifyInstance) {
                reply.setCookie("session",sessionToken, {
                 httpOnly: true,
                 secure: config.env === "production",
-                sameSame: "lax",
+                sameSite: "lax",
                 maxAge: 60 * 60 * 24 * 7, 
                 path: "/",
                });
