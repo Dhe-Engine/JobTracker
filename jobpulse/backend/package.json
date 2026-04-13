@@ -12,5 +12,8 @@
   "type": "commonjs",
   "devDependencies": {
     "@types/node": "^25.5.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
   }
 }
