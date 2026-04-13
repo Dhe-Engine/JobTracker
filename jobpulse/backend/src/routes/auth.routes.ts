@@ -3,8 +3,6 @@ import { getGoogleAuthUrl,handleGooglecallback } from "../services/auth.service"
 import { requireAuth } from "../core/middleware";
 import { db } from "../db/client";
 import { config } from "../core/config";
-import { string } from "zod";
-import { error } from "node:console";
 
 
 /*
