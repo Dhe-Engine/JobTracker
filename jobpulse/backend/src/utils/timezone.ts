@@ -30,3 +30,31 @@ export function getTodayinTimeZone(timezone: string): string {
 
     }).format(new Date());
 }
+
+/*
+getYesterdayInTimeZone
+
+return yesterday's date in the user's timezone
+
+function:
+    - to calculate uncompleted target from the previous day
+    - for previous day analytics
+*/
+export function getYesterdayInTimeZone(timeZone: string): string {
+
+    //new date object for 'now'
+    const yesterday = new Date()
+
+    //subtract by one day
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    //format result by user's timezone
+    return new Intl.DateTimeFormat("sv-SE", {
+        
+        timeZone: timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+
+    }).format(yesterday)
+}
