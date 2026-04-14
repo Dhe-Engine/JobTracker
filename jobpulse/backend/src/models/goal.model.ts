@@ -43,3 +43,36 @@ export interface Goal{
     active: boolean;
     created_at: string;
 }
+
+/*
+api input setup
+
+input payload for creating or updating a goal via api
+
+function:
+    - define the fields the client is allowed to set
+    - prevents unsafe fields like "carryover" being manipulated
+*/ 
+export interface SetGoalInput {
+    period_type: PeriodType;
+    target: number;
+}
+
+/*
+goal summary (read only model)
+
+contains only the computed values needed for display
+
+goal summary is used by:
+    - dashboard ui, workers
+    - notification system
+    - scheduling logic (id, timestamps)
+*/
+export interface GoalSummary {
+
+    base_target: number;
+    carryover: number;
+    effective_target: number;
+    period_type: PeriodType;
+
+}
