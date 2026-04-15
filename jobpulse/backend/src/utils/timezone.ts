@@ -58,3 +58,27 @@ export function getYesterdayInTimeZone(timeZone: string): string {
 
     }).format(yesterday)
 }
+
+/**
+ getCurrentHourInTimeZone
+
+ returns the current hour 0-23 based on the user's timezone
+
+ purpose:
+    - to determine morning, afternoon and schedule notifications
+ */
+
+export function getCurrentHourInTimeZone(timezone: string): number {
+
+    //get hour as string (24 hour format)
+    const hourStr = new Intl.DateTimeFormat("en-US",{
+        timeZone: timezone,
+        hour: "numeric",
+        hour12: false,
+
+    }).format(new Date());
+
+    //convert string to number
+    return parseInt(hourStr,10);
+
+}
