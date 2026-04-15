@@ -30,7 +30,7 @@ export async function setGoal(
     const {error:deactivateError} = await db
         .from("goals")
         .update({active: false})
-        .eq("userId", userId)
+        .eq("user_id", userId)
         .eq("active", true);
 
     if (deactivateError) {
@@ -40,7 +40,7 @@ export async function setGoal(
     //step 3: insert new goal with default carryover 
     const {error:insertError} = await db.from ("goals").insert({
         
-        userId: userId,
+        user_id: userId,
         period_type: input.period_type,
         target: input.target,
         carryover: 0,
@@ -51,5 +51,31 @@ export async function setGoal(
     if (insertError){
         throw new Error(`failed to create goal: ${insertError?.message}`)
     }
+}
+
+export async function getActiveGoal(userId: string) {
+    /*
+    retrieves the current active goal for a user
+
+    returns:
+        - goal object or null
+    */
+
+    const { data: goal, error } = await db
+        .from("goals")
+        .select("*")
+        .eq("user_id",userId)
+        .eq("active", true)
+        .single();
+
+    //handle no rows 
+    if (error) {
+        if (error.code === "PGRST116"){
+            return null;
+        }
+        throw new Error(`failed to fetch goal: ${error.message}`);
+    } 
+
+    return goal
 }
 
