@@ -144,3 +144,51 @@ export async function computeEffectiveTarget(
     };
 }
 
+
+export async function applyCarryover(
+    /**
+    updates the goal with carryover for the next day
+
+    responsibilities:
+        - check if user met current target
+        - calculate carryover if target was missed
+        - update goal with carryover
+    */
+   userId: string,
+   todayApplied: number,
+   todayTarget: number
+): Promise<void> {
+
+    const goal = await getActiveGoal(userId);
+    if (!goal) return;
+
+    //check if target was met
+    const metTarget = todayApplied >= todayTarget;
+
+    let tomorrowCarryover = 0;
+
+    //calculate carryover when missed
+    if (!metTarget) {
+
+        const missed = todayTarget - todayApplied;
+        const maxCarryover = goal.target * config.rules.carryoverCapMultiplier;
+
+        tomorrowCarryover = Math.min(Math.max(0, missed), maxCarryover);
+    }
+
+    //calculate tomorrow target
+    const tomorrowEffectiveTarget = goal.target + tomorrowCarryover;
+
+    //persist updated values
+    const {error} = await db
+        .from("goals")
+        .update({
+            carryover: tomorrowCarryover,
+            effective_target: tomorrowEffectiveTarget,
+        })
+        .eq("id",goal.id);
+    
+    if (error) {
+        throw new Error(`failed to apply carryover: ${error.message}`);
+    }
+}
