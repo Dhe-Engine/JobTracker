@@ -192,3 +192,34 @@ export async function applyCarryover(
         throw new Error(`failed to apply carryover: ${error.message}`);
     }
 }
+
+export async function getTodayProgress(userId: string): Promise<number> {
+
+    /*
+    returns the number of application the user made
+    */
+
+    //get user time zone
+    const { data: user } = await db
+        .from("users")
+        .select("timezone")
+        .eq("id", userId)
+        .single();
+
+    if (!user) return 0;
+
+    const today = getTodayinTimeZone(user.timezone);
+
+    //count application within current day range
+    const {count, error} = await db
+        .from("applications")
+        .select("id", {count: "exact", head: true})
+        .eq("user_id", userId)
+        .gte("applied_at", `${today}T00:00:00+00:00`)
+        .lt("applied_at", `${today}T23:59:59+00:00`);
+
+    if(error) return 0;
+
+    return count ?? 0;
+    
+}
