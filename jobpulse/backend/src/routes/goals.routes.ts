@@ -1,5 +1,3 @@
-
-
 import type { FastifyInstance } from "fastify";
 import {z} from "zod";
 import { requireAuth } from "../core/middleware";
@@ -7,7 +5,7 @@ import {setGoal, getActiveGoal, computeEffectiveTarget} from "../services/goal.s
 
 export async function goalRoutes(app:FastifyInstance) {
     /**
-     goalRoutes
+     goalRoutes 
 
     responsibilities:
         - retrieve the user active goal
