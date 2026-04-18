@@ -3,6 +3,7 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import {config} from "./core/config";
 import { authRoutes } from "./routes/auth.routes";
+import { goalRoutes } from "./routes/goals.routes";
 
 /* 
 buildServer is responsible for creating and configuring the fastify app
@@ -67,6 +68,14 @@ async function buildServer() {
    await app.register(authRoutes,{
     prefix: "/api/auth",
    });
+
+
+   /**
+   register all the goal related endpoints on the
+    */
+   await app.register(goalRoutes, {
+    prefix: "/api/goals"
+   })
 
    /*
    system route: health check setup
