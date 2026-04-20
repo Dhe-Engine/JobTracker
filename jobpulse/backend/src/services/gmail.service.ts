@@ -179,3 +179,17 @@ async function fetchEmailMetadata(
         return null;
     }
 }
+
+async function updateHistoryId(
+
+    //updates the stored bookmark
+    
+    userId: string,
+    historyId: string
+): Promise<void> {
+
+    await db
+        .from("users")
+        .update({gmail_history_id: historyId})
+        .eq("id", userId);
+}
