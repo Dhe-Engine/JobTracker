@@ -1,5 +1,5 @@
 /*
-what this service doEs:
+what this service does:
     - handles integration with gmail api
     - setup gmail push up notifications
     - fetch new emails since the last processed state
@@ -41,20 +41,19 @@ export async function setupGmailWatch(userId: string): Promise<void> {
     });
 
     //store bookmark to track last processed email
-
     const expiry = data.expiration != null ? Number(data.expiration): null;
 
-    if (expiry !== null && Number.isNaN(expiry)){
+    if (expiry != null && Number.isNaN(expiry)){
         throw new Error("invalid gmail expiration value");
     }
 
-        await db
-            .from("users")
-            .update({
-                gmail_history_id: data.historyId ?? null,
-                gmail_watch_expiry: expiry
-            })
-            .eq("id", userId);       
+    await db
+        .from("users")
+        .update({
+            gmail_history_id: data.historyId ?? null,
+            gmail_watch_expiry: expiry
+        })
+        .eq("id", userId);       
 }
 
 export async function getNewEmails(
@@ -82,6 +81,10 @@ export async function getNewEmails(
 
     const startHistoryId = user?.gmail_history_id ?? historyId;
 
+    if (!startHistoryId) {
+        throw new Error("missing historyId for gmail sync");
+    }
+
     //retrieve history of changes
     const {data: historyData} = await gmail.users.history.list({
         userId: "me",
@@ -103,24 +106,45 @@ export async function getNewEmails(
         }
     }
 
+    const uniqueMessageIds = [...new Set(newMessageIds)];
+
     //handle no new emails
-    if (newMessageIds.length === 0) {
-        await updateHistoryId(userId, historyId);
+    if (uniqueMessageIds.length === 0) {
+
+        //safe history id fallback
+        const nextHistoryId = 
+            historyData.historyId ?? 
+            user?.gmail_history_id ??
+            historyId;
+
+        await updateHistoryId(userId, nextHistoryId);
         return [];
     }
 
     //fetch metadata in parallel
-    const EmailMetadata = await Promise.all(
-        newMessageIds.map((msgId) => fetchEmailMetadata(gmail, msgId))
-    );
+    const BATCH_SIZE = 5;
+    const emailMetadata: (EmailMetadata | null)[] = [];
+
+    for (let i = 0; i < uniqueMessageIds.length; i += BATCH_SIZE) {
+        const batch = uniqueMessageIds.slice(i, i + BATCH_SIZE);
+
+        const results = await Promise.all(
+        batch.map((msgId) => fetchEmailMetadata(gmail, msgId))
+        );
+
+        emailMetadata.push(...results);
+    }
 
     //filter valid results
-    const validEmails = EmailMetadata.filter(
+    const validEmails = emailMetadata.filter(
         (e): e is EmailMetadata => e !== null
     );
 
+    //safe history id fallback
+    const nextHistoryId = historyData.historyId ?? historyId;
+
     //update bookmark
-    await updateHistoryId(userId, historyId);
+    await updateHistoryId(userId, nextHistoryId);
 
     return validEmails;
 }
