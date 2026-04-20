@@ -121,3 +121,61 @@ export async function getNewEmails{
     return validEmails;
 }
 
+async function fetchEmailMetadata(
+    gmail:ReturnType<typeof google.gmail>,
+    messageId: string
+): Promise<EmailMetadata | null> {
+    
+    /*
+    fetch the metadata for a single email
+
+    returns: 
+        - subject
+        - sender
+        - received timestamp
+    */
+
+    try {
+        const {data:message} = await gmail.users.messages.get({
+
+            userId: "me",
+            id: messageId,
+            format: "metadata",
+            metadataHeaders: ["Subject", "From", "Date"],
+        });
+
+        const headers = message.payload?.headers ?? [];
+
+        //get header value by name
+        const getHeader = (name: string): string => {
+
+            const header = headers.find(
+                (h) => h.name?.toLowerCase() === name.toLowerCase()
+            );
+            return header?.value ?? "";
+        };
+
+        const subject = getHeader("Subject");
+        const from = getHeader("From");
+        const dateStr = getHeader("Date");
+
+        //skip emails with no useful data
+        if (!subject && !from) return null;
+
+        //parse timestamp
+        const receivedAt = dateStr
+           ? new Date(dateStr).toISOString()
+           : new Date().toISOString();
+           
+        return {
+            gmail_message_id: messageId,
+            subject,
+            from,
+            received_at: receivedAt,
+        };
+        
+    } catch (err) {
+        console.error(`failed to fetch email ${messageId}:`,err);
+        return null;
+    }
+}
