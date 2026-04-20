@@ -183,7 +183,7 @@ async function fetchEmailMetadata(
 async function updateHistoryId(
 
     //updates the stored bookmark
-    
+
     userId: string,
     historyId: string
 ): Promise<void> {
@@ -191,5 +191,38 @@ async function updateHistoryId(
     await db
         .from("users")
         .update({gmail_history_id: historyId})
+        .eq("id", userId);
+}
+
+export async function disconnectGmail(userId: string): Promise<void> {
+
+    /*
+     disconnect user's gmail account
+
+     what it does:
+        - stop gmail notifications
+        - clear stored tokens and sync state
+    */
+
+    try {
+        
+        const {client} = await getGmailClientForUser(userId);
+        const gmail = google.gmail({version: "v1", auth:client});
+
+        //stop notifications
+        await gmail.users.stop({userId: "me"});
+
+    } catch {
+        console.warn(`could not stop gmail watch for user ${userId} - continuing`);
+    }
+
+    //clear stored credentials and sync state
+    await db
+        .from("users")
+        .update({
+            gmail_token: null,
+            gmail_history_id: null,
+            gmail_watch_expiry: null,
+        })
         .eq("id", userId);
 }
