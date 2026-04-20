@@ -57,7 +57,11 @@ export async function setupGmailWatch(userId: string): Promise<void> {
             .eq("id", userId);       
 }
 
-export async function getNewEmails{
+export async function getNewEmails(
+    userId: string,
+    historyId: string
+): Promise<EmailMetadata[]> {
+
     /*
     retrieve new emails since the last processed state
 
@@ -74,7 +78,7 @@ export async function getNewEmails{
         .from("users")
         .select("gmail_history_id")
         .eq("id", userId)
-        .single()
+        .single();
 
     const startHistoryId = user?.gmail_history_id ?? historyId;
 
@@ -100,14 +104,14 @@ export async function getNewEmails{
     }
 
     //handle no new emails
-    if (newMessageIds.length === 0){
-        await updateHistory(userId, historyId);
+    if (newMessageIds.length === 0) {
+        await updateHistoryId(userId, historyId);
         return [];
     }
 
     //fetch metadata in parallel
     const EmailMetadata = await Promise.all(
-        newMessageIds.map ((msgId) => fetchEmailMetadata(gmail, msgId)
+        newMessageIds.map((msgId) => fetchEmailMetadata(gmail, msgId))
     );
 
     //filter valid results
@@ -116,7 +120,7 @@ export async function getNewEmails{
     );
 
     //update bookmark
-    await UpdateHistory(userId, historyId);
+    await updateHistoryId(userId, historyId);
 
     return validEmails;
 }
