@@ -92,11 +92,68 @@ export async function classifyEmail(
             role: null,
             confidence: "low"
         }
-    }
-    
+    } 
+}
 
-     
+function parseGeminiResponse(rawText: string): ParsedEmail{
+
+    /*
+    parse and validate gemini response
+
+    - remove formatting artifacts(markdown)
+    - safely parse json
+    - validate structure
+    - normalize invalid or missing values
+    */
+
+    //clean text
+    const cleaned = rawText
+        .replace(/```json\n?/g, "")
+        .replace(/```\n?/g, "")
+        .trim();
+
+    let parsed: unknown;
+
+    //parse json
+    try {
+        parsed = JSON.parse(cleaned);
+    }
+    catch{
+        console.error("failed to parse gemini json:", rawText);
+
+        return {
+            is_job_application: false,
+            company: null,
+            role: null,
+            confidence: "low",
+        };
+    }
+
+    //validate structure
+    if (typeof parsed !== "object" || 
+        parsed === null ||
+        typeof (parsed as Record<string, unknown>).is_job_application !== "boolean"
+    ){
+        console.error("gemini response missing required fields:", parsed);
+
+        return {
+            is_job_application: false,
+            company: null,
+            role: null, 
+            confidence: "low",
+        };
+    }
+
+    const result = parsed as Record<string, unknown>;
+
+    //normalize output
+    return {
+
+        is_job_application: result.is_job_application as boolean,
+        company: typeof result.company === "string" ? result.company : null,
+        role: typeof result.role === "string" ? result.role : null,
+        confidence: result.confidence === "high" || result.confidence === "medium" ? result.confidence : "low",
+    };
 }
 
 
-    
