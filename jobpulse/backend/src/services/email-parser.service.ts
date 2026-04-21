@@ -53,3 +53,50 @@ Rules for extraction:
 - "role": Extract the job title the person applied for. If not mentioned, return null.
 - "confidence": Use "high" if you are certain, "medium" if probable, "low" if guessing.`;
 
+export async function classifyEmail(
+    email: EmailMetadata
+): Promise<ParsedEmail> {
+
+    /*
+    classify email using gemini
+
+    flow:
+        1. build email prompt
+        2. call ai api
+        3. extract raw text
+        4. convert to json
+    */
+
+    //construct user message
+    const prompt = `${CLASSIFICATION_SYSTEM_PROMPT} Subject: ${email.subject} From: ${email.from}`;
+
+    try {
+
+        //call gemini api
+        const result = await model.generateContent(prompt);
+
+        //extract raw text
+        const rawText = result.response.text();
+
+        //json format
+        return parseGeminiResponse(rawText);
+
+    } catch (err) {
+
+        //safe fallback should api fail
+        console.error("gemini classification failed:", err);
+
+        return {
+            is_job_application: false,
+            company: null,
+            role: null,
+            confidence: "low"
+        }
+    }
+    
+
+     
+}
+
+
+    
