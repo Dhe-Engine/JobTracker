@@ -9,6 +9,7 @@ purpose:
 import {GoogleGenerativeAI} from "@google/generative-ai";
 import {config} from "../core/config";
 import type { EmailMetadata,ParsedEmail } from "../models/application.model";
+import { resolve } from "node:dns";
 
 
 //initialize google client
@@ -154,6 +155,35 @@ function parseGeminiResponse(rawText: string): ParsedEmail{
         role: typeof result.role === "string" ? result.role : null,
         confidence: result.confidence === "high" || result.confidence === "medium" ? result.confidence : "low",
     };
+}
+
+export async function classifyEmailBatch(
+    emails: EmailMetadata[]
+): Promise<Array<{email: EmailMetadata; result: ParsedEmail}>> {
+
+    /*
+    classifies multiple emails sequentially
+
+    flow:
+        - loop through emails
+        - classify each email
+        - store result
+        - use of delay between requests
+    */
+
+    const results: Array<{email: EmailMetadata; result: ParsedEmail}> = [];
+
+    for (const email of emails) {
+
+        const result = await classifyEmail(email);
+
+        results.push({email, result});
+
+        //delay requests
+        await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    return results
 }
 
 
