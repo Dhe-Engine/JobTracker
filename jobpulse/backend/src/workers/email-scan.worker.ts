@@ -147,3 +147,49 @@ emailScanWorker.on("failed", (job, err) => {
 });
 
 
+/*
+a fallback mechanism for when ai cannot extract company's name
+
+logic:
+    - extract domain from email address
+    - ignore ats domain
+    - infer company from domain name
+*/
+
+const ATS_DOMAINS = new Set([
+    "greenhouse.io",
+    "lever.co",
+    "workday.com",
+    "myworkdayjobs.com",
+    "taleo.net",
+    "icims.com",
+    "jobvite.com",
+    "smartrecruiters.com",
+    "bamboohr.com",
+]);
+
+function extractCompanyFromSender(from: string): string{
+
+    //extract email address from "from" field
+    const emailMatch = from.match(/<(.+)>/) ?? from.match(/(\S+@\S+)/);
+
+    if (!emailMatch) return "Unknown company";
+
+    const emailAddress = emailMatch[1];
+
+    //extract domain
+    const domain = emailAddress.split("@")[1]?.toLowerCase();
+    if (!domain) return "Unknown company";
+
+    //filter ats domains
+    if (ATS_DOMAINS.has(domain)) return "Unknown company";
+
+    //infer company name
+    const parts = domain.split(".");
+    const companyPart = parts.length >= 2 ? parts[parts.length -2] : parts[0];
+
+    return companyPart.charAt(0).toUpperCase + companyPart.slice(1);
+
+}
+
+
