@@ -1,5 +1,5 @@
 /*
-this method process incoming gmail webhooks asynchronously
+this method processes incoming gmail webhooks asynchronously
 
 fetches new emails and converts them into job applications
 
@@ -20,17 +20,17 @@ import { getNewEmails } from "../services/gmail.service";
 import { classifyEmail } from "../services/email-parser.service";
 
 
-export const emailScanQueue = new Queue("email-scan", {
 /*
 queue setup
 
-this method setup the email scan queue
+this method sets up the email scan queue
 
 configuration: 
     - retry failed jobs up to 3x
     - uses exponential backoff 2s -> 4s -> 8s
     - automatically clean completed and failed jobs after a period
 */
+export const emailScanQueue = new Queue("email-scan", {
 
     connection: { url: config.redis.url },
     defaultJobOptions: {
@@ -44,7 +44,93 @@ configuration:
     },
 });
 
+export const emailScanWorker = new Worker("email-scan", async (job) => {
 
+    //this object process jobs from email scan queue object
+    const  {userId, historyId} = job.data as {
+        userId: string;
+        historyId: string;
+    };
+
+    console.log(`[email-scan] processing job ${job.id} for user ${userId}`);
+
+    //1.fetch new emails
+    const newEmails = await getNewEmails(userId, historyId);
+
+    if(newEmails.length === 0) {
+        console.log(`[email-scan] no new emails for user ${userId}`);
+        return;
+    }
+
+    //2. process each email sequentially to isolate errors 
+    for (const email of newEmails){
+
+        //check for duplicate
+        const {count} = await db
+            .from("applications")
+            .select("id",{count:"exact",head:true})
+            .eq("user_id",userId)
+            .eq("email_id",email.gmail_message_id);
+
+        if (count && count > 0){
+            console.log(`[email-scan] skipping duplicate email ${email.gmail_message_id}`);
+            continue;
+        }
+
+        //classify email using ai
+        const classification = await classifyEmail(email);
+
+        console.log(
+            `[email-scan] Email "${email.subject}" → ` +
+            `is_job_application: ${classification.is_job_application}, ` +
+            `confidence: ${classification.confidence}`
+        );
+
+        //filter non-job emails
+        if (!classification.is_job_application) {
+            continue;
+        }
+
+        //filter low confidence results
+        if (classification.confidence === "low"){
+            console.log(`[email-scan] low confidence for "${email.subject}" - skipping`);
+            continue;
+        }
+
+        //persist application
+        const {error:insertError} = await db.from("applications").insert({
+
+            user_id: userId,
+            company: classification.company ?? extractCompanyFromSender(email.from),
+            role: classification.role ?? "Unknown Role",
+            status: "applied",
+            source: "email_auto",
+            email_id: email.gmail_message_id,
+            applied_at: email.received_at,
+        });
+
+        if (insertError) {
+            
+            console.error(
+                `[email-scan] failed to insert applicationn for email ${email.gmail_message_id}: `,
+                insertError.message
+            );
+        }
+        else {
+            console.log(
+                `[email-scan] saved application: ${classification.company} - ${classification.role}`
+            );
+        }
+    }
+},
+
+//worker configuration to process multiple users in parallel
+{
+    connection: {url: config.redis.url},
+    concurrency: 5,
+}
+
+);
 
 
 
