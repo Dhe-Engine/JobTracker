@@ -129,8 +129,21 @@ export const emailScanWorker = new Worker("email-scan", async (job) => {
     connection: {url: config.redis.url},
     concurrency: 5,
 }
-
 );
 
+/*
+event listeners
+
+used for debugging
+*/
+emailScanWorker.on("completed", (job) => {
+    console.log(`[email-scan] job ${job.id} completed`);
+});
+
+emailScanWorker.on("failed", (job, err) => {
+    console.error(`[email-scan] job ${job?.id} failed after all retries:`,
+        err.message
+    );
+});
 
 
