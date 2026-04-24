@@ -40,17 +40,16 @@ export async function gmailRoutes(app: FastifyInstance) {
         - allows Google to send push notifications when new emails arrive
     */
 
-      app.post(
-    "/connect",
-    { preHandler: requireAuth },
-    async (req, reply) => {
-      await setupGmailWatch(req.user!.userId);
+    app.post(
+        "/connect",
+        { preHandler: requireAuth },
+        async (req, reply) => {
+            await setupGmailWatch(req.user!.userId);
 
-      return reply.send({
-        ok: true,
-        message: "Gmail connected",
-      });
-    }
-  );
-
+            return reply.send({
+                ok: true,
+                message: "Gmail connected",
+            });
+        }
+    );
 }
