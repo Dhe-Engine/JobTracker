@@ -74,7 +74,7 @@ export async function gmailRoutes(app: FastifyInstance) {
 
             return reply.send({
                 ok: true,
-                message: "gmail disconnected",
+                message: "Gmail disconnected",
             });
         }
     );
@@ -122,7 +122,7 @@ export async function gmailRoutes(app: FastifyInstance) {
                 };
 
                 //validate required notifications field
-                if(!notification.emailAddress || notification.historyId){
+                if (!notification.emailAddress || !notification.historyId){
                     console.warn("[gmail/push] malformed notification:", notification);
                     return;
                 }
@@ -131,7 +131,7 @@ export async function gmailRoutes(app: FastifyInstance) {
                 const {data:user} = await db
                     .from("users")
                     .select("id, notifications_enabled")
-                    .eq("email", "notification.emailAddress")
+                    .eq("email", notification.emailAddress)
                     .single();
 
                 if (!user) {
