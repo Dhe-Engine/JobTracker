@@ -1,9 +1,23 @@
+/*
+this is the application entry point
+
+what it does:
+    - create and configure the fastify server
+    - register plugins and route groups
+    - start background workers
+    - listen to incoming requests
+*/
+
+
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import {config} from "./core/config";
 import { authRoutes } from "./routes/auth.routes";
 import { goalRoutes } from "./routes/goals.routes";
+import { gmailRoutes } from "./routes/gmail.routes";
+import { emailScanWorker } from "./workers/email-scan.worker";
+
 
 /* 
 buildServer is responsible for creating and configuring the fastify app
@@ -12,7 +26,7 @@ what it does:
     - initialize the server instance
     - register global plugins (cors, cookies)
     - register all route groups
-    = define base system routes for health check
+    - define base system routes for health check
 
 returns: 
     - configured fastify app
@@ -22,20 +36,20 @@ async function buildServer() {
     const app = Fastify({logger:true});
 
     /*
-    pluigin 1: cross origin resource setup (cors)
+    plugin 1: cross origin resource setup (cors)
 
     purpose: 
         - allow frontend to call the backend
         - enable cookies to be sent across origins
 
     config: 
-        - origiin: only allow request from frontend url
+        - origin: only allow request from frontend url
         - credentials: must be true to allow cookies to be sent
     */
 
     await app.register(cors, {
         origin: config.frontend.url,
-        credentials: true //reqiured for the mtl to work
+        credentials: true //required for the mtl to work
     });
 
 
@@ -54,28 +68,49 @@ async function buildServer() {
     secret: config.jwt.secret,
    });
 
+
    /*
    route group: authentication routes setup
 
    register all auth related endpoints
 
-   prefix: 
-        - all routes inside authRoutes will be under /api/auth
-
     example: 
         - /google -> /api/auth/google
     */
+
    await app.register(authRoutes,{
     prefix: "/api/auth",
    });
 
 
    /**
-   register all the goal related endpoints on the
+   register all the goal related endpoints
     */
+
    await app.register(goalRoutes, {
     prefix: "/api/goals"
    })
+
+
+   /*
+   register gmail integration routes
+   */
+
+  await app.register(gmailRoutes, {
+    prefix: "/api/gmail"
+  });
+
+  /*
+  background worker startup
+  
+  importing emailScanWorker starts automatically
+
+  purpose:
+    - listens for queued email scan jobs
+    - processes Gmail notifications in the background
+  */
+  emailScanWorker;
+
 
    /*
    system route: health check setup
@@ -87,6 +122,7 @@ async function buildServer() {
    method: GET 
    path: /health
    */
+
   app.get("/health", async () => {
     return {status: "ok"};
   });
@@ -94,6 +130,7 @@ async function buildServer() {
 
   return app //return configured server (not started yet)
 }
+
 
 /*
 main application entry point
@@ -126,7 +163,7 @@ async function main() {
 
 }
 
-//catch error during startup
+//handle startup errors
 main().catch((err) => {
 console.error(err);
 process.exit(1);
