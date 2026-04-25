@@ -31,3 +31,16 @@ export interface DailySummary {
     //number of carryover
     carryover_to_next: number;
 }
+
+//input payload for creating daily summary before saving to database
+export interface DailySummaryInput {
+
+    userId: string;
+    date: string;
+    appliedCount: number;
+    target: number;
+    metTarget: boolean;
+    streakDay: number;
+    carryoverToNext: number;
+
+}
