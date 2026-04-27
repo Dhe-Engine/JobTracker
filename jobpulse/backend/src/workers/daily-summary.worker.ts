@@ -201,40 +201,68 @@ return:
     - longest streak
  */
 
-    async function computeStreak(
-        userId: string,
-        metTargetToday: boolean,
-        timezone: string
-    ): Promise<{streakDay: number; longestStreak: number}> {
+async function computeStreak(
+    userId: string,
+    metTargetToday: boolean,
+    timezone: string
+): Promise<{streakDay: number; longestStreak: number}> {
 
-        const {data:streakRecord} = await db
-            .from("streaks")
-            .select("current_streak, longest_streak, last_active_date")
-            .eq("user_id", userId)
-            .single();
+    const {data:streakRecord} = await db
+        .from("streaks")
+        .select("current_streak, longest_streak, last_active_date")
+        .eq("user_id", userId)
+        .single();
 
-        const previousStreak = streakRecord?.current_streak ?? 0;
-        const previousLongest = streakRecord?.longest_streak ?? 0;
-        const lastActiveDate = streakRecord?.last_active_date ?? null;
+    const previousStreak = streakRecord?.current_streak ?? 0;
+    const previousLongest = streakRecord?.longest_streak ?? 0;
+    const lastActiveDate = streakRecord?.last_active_date ?? null;
 
-        const yesterday = getYesterdayInTimeZone(timezone);
-        const hadStreakYesterday = lastActiveDate === yesterday || previousStreak === 0;
+    const yesterday = getYesterdayInTimeZone(timezone);
+    const hadStreakYesterday = lastActiveDate === yesterday || previousStreak === 0;
 
-        let newStreakDay: number;
+    let newStreakDay: number;
 
-        if(!metTargetToday) {
-            newStreakDay = 0;
-        }
-        else {
-            newStreakDay = previousStreak + 1;
-        }
-
-        const newLongest = Math.max(previousLongest, newStreakDay);
-
-        return {
-            streakDay: newStreakDay,
-            longestStreak: newLongest,
-        };
+    if(!metTargetToday) {
+        newStreakDay = 0;
+    }
+    else {
+        newStreakDay = previousStreak + 1;
     }
 
-    
+    const newLongest = Math.max(previousLongest, newStreakDay);
+
+    return {
+        streakDay: newStreakDay,
+        longestStreak: newLongest,
+    };
+}
+
+
+//update streak record in database 
+async function updateStreakRecord(
+    userId: string,
+    currentStreak: number,
+    longestStreak: number,
+    metTarget: boolean
+): Promise<void> {
+
+    const today = new Date().toISOString.split("T")[0];
+
+    const {error} = await db
+        .from("streaks")
+        .upsert(
+            {
+                user_id: userId,
+                current_streak: currentStreak,
+                longest_streak: longestStreak,
+                last_active_date: metTarget ? today: undefined,
+            },
+            {
+                onConflict: "user_id",
+            }
+        );
+
+        if(error) {
+            throw new Error(`failed to update streak: ${error.message}`);
+        }
+}
