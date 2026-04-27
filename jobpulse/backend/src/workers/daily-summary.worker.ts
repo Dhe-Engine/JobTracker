@@ -13,7 +13,7 @@ import cron from "node-cron";
 import { db } from "../db/client";
 import { config } from "../core/config";
 import { computeEffectiveTarget, applyCarryover } from "../services/goal.services";
-import { getYesterdayInTimeZone } from "../utils/timezone";
+import { getTodayinTimeZone,getYesterdayInTimeZone } from "../utils/timezone";
 import type { DailySummaryInput } from "../models/daily-summary.model";
 
 
@@ -54,7 +54,7 @@ async function processMidnightUsers(): Promise<void> {
         .select("id, timezone, email")
         .not("timezone", "is", null);
 
-    if (error || !users || users.length === 0) return 0;
+    if (error || !users || users.length === 0) return;
     
     const now = new Date();
 
@@ -79,7 +79,7 @@ async function processMidnightUsers(): Promise<void> {
 
     if (midnightUsers.length === 0) return;
 
-    console.log(`[daily-summary] processing ${midnightUsers.length} user(s)`);
+    console.log(`[daily-summary] processing ${midnightUsers.length} user(s) at midnight`);
 
     for (const user of midnightUsers) {
 
@@ -93,7 +93,6 @@ async function processMidnightUsers(): Promise<void> {
         }
     }
 }
-
 
 
 //processes a user's daily summary
@@ -225,6 +224,9 @@ async function computeStreak(
     if(!metTargetToday) {
         newStreakDay = 0;
     }
+    else if (!hadStreakYesterday && previousStreak > 0){
+        newStreakDay = 1;
+    }
     else {
         newStreakDay = previousStreak + 1;
     }
@@ -246,7 +248,7 @@ async function updateStreakRecord(
     metTarget: boolean
 ): Promise<void> {
 
-    const today = new Date().toISOString.split("T")[0];
+    const today = new Date().toISOString().split("T")[0];
 
     const {error} = await db
         .from("streaks")
