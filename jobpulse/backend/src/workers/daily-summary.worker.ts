@@ -191,3 +191,50 @@ async function processUserDailySummary(
             .eq("user_id", userId);
     }
 }
+
+
+/*
+computes streak values
+
+return:
+    - current streak
+    - longest streak
+ */
+
+    async function computeStreak(
+        userId: string,
+        metTargetToday: boolean,
+        timezone: string
+    ): Promise<{streakDay: number; longestStreak: number}> {
+
+        const {data:streakRecord} = await db
+            .from("streaks")
+            .select("current_streak, longest_streak, last_active_date")
+            .eq("user_id", userId)
+            .single();
+
+        const previousStreak = streakRecord?.current_streak ?? 0;
+        const previousLongest = streakRecord?.longest_streak ?? 0;
+        const lastActiveDate = streakRecord?.last_active_date ?? null;
+
+        const yesterday = getYesterdayInTimeZone(timezone);
+        const hadStreakYesterday = lastActiveDate === yesterday || previousStreak === 0;
+
+        let newStreakDay: number;
+
+        if(!metTargetToday) {
+            newStreakDay = 0;
+        }
+        else {
+            newStreakDay = previousStreak + 1;
+        }
+
+        const newLongest = Math.max(previousLongest, newStreakDay);
+
+        return {
+            streakDay: newStreakDay,
+            longestStreak: newLongest,
+        };
+    }
+
+    
