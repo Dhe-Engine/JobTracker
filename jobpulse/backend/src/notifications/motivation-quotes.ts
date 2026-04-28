@@ -52,3 +52,33 @@ const fallbackQuotes: Record<QuoteTone, string> = {
 
 }
 
+
+/*
+returns: 
+    - generated ai quote
+    - fallback/back up quotes should ai fail
+*/
+
+export async function getMotivationQuote(
+
+    tone:  QuoteTone,
+    context?: {
+        appliedToday?: number;
+        effectiveTarget?: number;
+    }
+): Promise<string> {
+
+    try{
+        const quote = await generateQuoteWithGemini(tone, context);
+        return quote;
+    }
+    catch (err) {
+
+        //backup quote when ai fails
+        console.warn(
+            `[motivation-quotes] gemini api failed for tone "${tone}", using fallback:`,
+            err
+        );
+        return fallbackQuotes[tone];
+    }
+}
