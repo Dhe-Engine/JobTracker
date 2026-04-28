@@ -4,7 +4,7 @@ handles motivational quote generations used for notifications
 what it does:
     - generate short motivational quote using gemini
     - adjust tone based on time of the day
-    - uses user progress data for quotes
+    - uses user's progress data for quotes
     - use hardcode quotes if ai fail
 */
 
@@ -42,7 +42,7 @@ const toneContext: Record<QuoteTone, string> = {
 };
 
 
-//backup quotes should ai fail
+//backup quotes if ai fail
 const fallbackQuotes: Record<QuoteTone, string> = {
 
     night: "Every application you send is a step forward. Rest up.",
@@ -50,7 +50,7 @@ const fallbackQuotes: Record<QuoteTone, string> = {
     afternoon: "The clock is moving. So should you.",
     evening: "The day isn't over. Neither are you.",
 
-}
+};
 
 
 /*
@@ -102,7 +102,7 @@ async function generateQuoteWithGemini(
 
     if (context?.appliedToday !== undefined && context?.effectiveTarget !== undefined) {
 
-        const remaining = context.effectiveTarget - context.appliedToday;
+        const remaining = Math.max (0, context.effectiveTarget - context.appliedToday);
         const progressPct = context.effectiveTarget > 0 ? Math.round(
             (context.appliedToday / context.effectiveTarget) * 100
         ): 0;
@@ -125,7 +125,7 @@ async function generateQuoteWithGemini(
 
         Rules:
         - Write exactly ONE quote. No alternatives, no options.
-        - Maximum 20 words. Shorter is better — this appears in a phone notification.
+        - Maximum 25 words. Shorter is better — this appears in a phone notification.
         - Do NOT use hashtags, bullet points, quotation marks, or any formatting.
         - Do NOT start with "I" or address the reader as "you" repeatedly.
         - Do NOT be generic — make it feel personal and real for this exact moment.
@@ -153,7 +153,7 @@ async function generateQuoteWithGemini(
     }
 
     //set word limit
-    const words = cleaned.split(" ");
+    const words = cleaned.split(/\s+/);
 
     if (words.length > 25) {
         const firstSentence = cleaned.split(/[.!?]/)[0];
