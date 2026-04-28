@@ -107,3 +107,22 @@ export function composeNotification(input: ComposeInput): NotificationMessage {
         },
     };
 }
+
+
+/*
+converts an hour into a notification window
+
+i.e.:
+    7 - morning
+    14 - afternoon
+*/
+export function getWindowForHour(
+    hour: number
+): "night" | "morning" | "afternoon" | "evening" {
+
+    if (hour >= 0 && hour < 6) return "night";
+    if (hour >= 6 && hour < 12) return "morning";
+    if (hour >= 12 && hour < 18) return "afternoon";
+    return "evening"
+}
+
