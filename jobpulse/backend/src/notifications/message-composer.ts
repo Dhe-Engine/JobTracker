@@ -148,3 +148,27 @@ export function getWindowFrequencyMinutes(
 
     }
 }
+
+
+//returns the minimum progress before sending notifications
+export function getWindowThreshold(
+    window: "night" | "morning" | "afternoon" | "evening"
+): number | null {
+
+    switch(window) {
+
+        case"night":
+            return null;
+
+        case "morning":
+            return 0.25;
+
+        case "afternoon":
+            return 0.5;
+
+        case "evening":
+            return 0.8;
+
+    }
+
+}
