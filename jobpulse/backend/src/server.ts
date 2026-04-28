@@ -17,6 +17,7 @@ import { authRoutes } from "./routes/auth.routes";
 import { goalRoutes } from "./routes/goals.routes";
 import { gmailRoutes } from "./routes/gmail.routes";
 import { emailScanWorker } from "./workers/email-scan.worker";
+import { startDailySummaryCron } from "./workers/daily-summary.worker";
 
 
 /* 
@@ -158,6 +159,16 @@ async function main() {
         host: "0.0.0.0",
     }
    );
+
+   /* 
+   background cron startup
+
+   what it does:
+        - start the daily summary scheduler after server is running
+        - check every minute for users who just reached midnight
+        - generate daily summary and update streak and carryover automatically
+   */
+  startDailySummaryCron();
 
    console.log(`server running on port ${config.port}`);
 
