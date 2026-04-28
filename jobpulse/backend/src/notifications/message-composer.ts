@@ -170,5 +170,4 @@ export function getWindowThreshold(
             return 0.8;
 
     }
-
 }
