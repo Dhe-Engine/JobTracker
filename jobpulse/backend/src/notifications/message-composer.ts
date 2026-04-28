@@ -126,3 +126,25 @@ export function getWindowForHour(
     return "evening"
 }
 
+
+// returns how often notifications is sent in each window
+export function getWindowFrequencyMinutes(
+    window: "night" | "morning" | "afternoon" | "evening"
+): number {
+
+    switch(window) {
+
+        case "night":
+            return 1440; //once per day
+
+        case "morning":
+            return 120; //every 2hrs
+
+        case "afternoon":
+            return 90; //every 90 mins
+
+        case "evening":
+            return 60; //every hr
+
+    }
+}
