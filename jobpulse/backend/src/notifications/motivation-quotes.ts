@@ -68,6 +68,10 @@ export async function getMotivationQuote(
     }
 ): Promise<string> {
 
+    if (!(tone in fallbackQuotes)) {
+        throw new Error(`Invalid quote tone: ${tone}`);
+    }
+
     try{
         const quote = await generateQuoteWithGemini(tone, context);
         return quote;
@@ -102,7 +106,7 @@ async function generateQuoteWithGemini(
 
     if (context?.appliedToday !== undefined && context?.effectiveTarget !== undefined) {
 
-        const remaining = Math.max (0, context.effectiveTarget - context.appliedToday);
+        const remaining = Math.max(0, context.effectiveTarget - context.appliedToday);
         const progressPct = context.effectiveTarget > 0 ? Math.round(
             (context.appliedToday / context.effectiveTarget) * 100
         ): 0;
@@ -157,7 +161,7 @@ async function generateQuoteWithGemini(
 
     if (words.length > 25) {
         const firstSentence = cleaned.split(/[.!?]/)[0];
-        return firstSentence.trim() || words.slice(0, 20).join(" ");
+        return firstSentence.trim() || words.slice(0, 25).join(" ");
     }
 
 
