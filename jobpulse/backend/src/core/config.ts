@@ -38,8 +38,8 @@ const envSchema = z.object(
         //reddis for caching, sessions, queues
         REDIS_URL: z.string().default("redis://localhost:6379"), //points to local redis server
 
-        //ai feature (claude)
-        ANTHROPIC_API_KEY: z.string(), //api key to access anthropic
+        //ai feature (gemini)
+        GEMINI_API_KEY: z.string(), //api key to access anthropic
 
         //firebase cloud messaging for notifications
         FCM_PROJECT_ID: z.string(), //firebase id
@@ -107,10 +107,9 @@ export const config = {
      },
     
      //anthropic / claude
-     anthropic: {
-        apiKey: env.ANTHROPIC_API_KEY,
-        //haiku is fast and cheap - perfect for email classification
-        model: "claude-haiku-4-5-20251001",
+     gemini: {
+        apiKey: env.GEMINI_API_KEY,
+        model: "gemini-1.5-flash", //free, fast and good
      },
 
      //firebase messaging
