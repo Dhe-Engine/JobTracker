@@ -7,6 +7,7 @@ import * as admin from "firebase-admin";
 import { config } from "../core/config";
 import { db } from "../db/client";
 import type { NotificationMessage } from "./message-composer";
+import { fa } from "zod/locales";
 
 
 //initialize firebase admin
@@ -77,3 +78,46 @@ export async function sendPushNotification(
     }
 }
 
+//send notification to all devices for one user
+export async function sendToUser(
+    userId: string,
+    message: NotificationMessage
+): Promise<boolean> {
+
+    const {data: tokens} = await db
+        .from("fcm_tokens")
+        .select("id, token")
+        .eq("user_id", userId);
+
+    if (!tokens || tokens.length === 0) {
+        console.log(`[fcm] no tokens for user ${userId}`);
+        return false;
+    }
+
+    const staleTokenIds: string[] = [];
+    let atLeastOneSent = false;
+
+    for (const tokenRow of tokens){
+        const result = await sendPushNotification(tokenRow.token, message);
+
+        if(result.success) {
+            atLeastOneSent = true;
+        }
+
+        if (result.shouldRemoveToken) {
+            staleTokenIds.push(tokenRow.id);
+        }
+    }
+
+    if(staleTokenIds.length > 0){
+        await db
+            .from("fcm_tokens")
+            .delete()
+            .in("id", staleTokenIds);
+
+        console.log(
+            `[fcm] removed ${staleTokenIds.length} stale token(s) for user ${userId}`);
+    }
+
+    return atLeastOneSent;
+}
