@@ -121,3 +121,28 @@ export async function sendToUser(
 
     return atLeastOneSent;
 }
+
+//register or update device token 
+export async function registerToken(
+    userId: string,
+    token: string
+): Promise<void> {
+
+    const {error} = await db
+        .from("fcm_tokens")
+        .upsert(
+            {
+                user_id: userId,
+                token,
+                last_seen: new Date().toISOString(),
+            },
+            {
+                onConflict: "user_id,token",
+                ignoreDuplicates: false,
+            }
+        );
+
+    if (error) {
+        throw new Error(`failed to register fcm token: ${error.message}`);
+    } 
+}
