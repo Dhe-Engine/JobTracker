@@ -146,3 +146,21 @@ export async function registerToken(
         throw new Error(`failed to register fcm token: ${error.message}`);
     } 
 }
+
+//log notification sent
+export async function logNotificationSent(
+    userId: string,
+    window_period: string,
+    message: string,
+): Promise<void> {
+
+    await db.from("notifications_log").insert(
+        {
+            user_id: userId,
+            window_period,
+            message,
+            sent_at: new Date().toISOString(),
+            delivered: true,
+        }
+    );
+}
