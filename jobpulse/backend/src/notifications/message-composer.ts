@@ -34,7 +34,9 @@ export interface ComposeInput {
 }
 
 //builds a notification message
-export function composeNotification(input: ComposeInput): NotificationMessage {
+export async function composeNotification(
+    input: ComposeInput
+): Promise<NotificationMessage> {
 
     const {window, appliedToday, effectiveTarget, hoursRemaining} = input;
 
@@ -47,7 +49,10 @@ export function composeNotification(input: ComposeInput): NotificationMessage {
 
 
     //fetch motivational quote for this time window
-    const quote = getMotivationQuote(window as QuoteTone);
+    const quote = await getMotivationQuote(window as QuoteTone,{
+        appliedToday: input.appliedToday,
+        effectiveTarget: input.effectiveTarget,
+    });
 
     let title: string;
     let body: string;

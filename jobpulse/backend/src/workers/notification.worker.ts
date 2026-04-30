@@ -115,7 +115,7 @@ async function processUserNotification(
 
     const hoursRemaining = 23 - localHour;
 
-    const message = composeNotification(
+    const message = await composeNotification(
         {
             window,
             appliedToday,
