@@ -135,3 +135,40 @@ async function processUserNotification(
         );
     }
 }
+
+
+//check recent notification
+async function checkRecentNotification(
+    userId:string,
+    window: "night" | "morning" | "afternoon" | "evening",
+    timezone: string
+): Promise<boolean> {
+    
+    const frequencyMinutes = getWindowFrequencyMinutes(window);
+
+    const cutoffTime = new Date(
+        Date.now() - frequencyMinutes * 60 *1000).toISOString();
+
+    const today = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(new Date());
+
+    const query = db
+        .from("notifications_log")
+        .select("id", {count: "exact", head: true})
+        .eq("user_id", userId)
+        .eq("window_period", window)
+        .gte("sent_at", cutoffTime);
+
+    if(window === "night"){
+        query.gte("sent_at", `${today}T00:00:00+00:00`);
+    }
+
+    const {count} = await query;
+
+    return (count ?? 0) > 0;
+
+}
