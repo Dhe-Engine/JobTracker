@@ -15,6 +15,7 @@ import { sendToUser, logNotificationSent } from "../notifications/fcm.service";
 import { 
     composeNotification, getWindowForHour, getWindowFrequencyMinutes, getWindowThreshold 
 } from "../notifications/message-composer";
+import { getCurrentHourInTimeZone } from "../utils/timezone";
 
 
 //start notification cron job
@@ -69,6 +70,68 @@ async function processAllUsers(): Promise<void> {
             );
         }
     });
+}
 
+//process notification for one user
+async function processUserNotification(
+    userId: string,
+    timezone: string
+): Promise<void> {
+
+    const goalSummary = await computeEffectiveTarget(userId);
+
+    if(!goalSummary || goalSummary.effective_target === 0) {
+        return;
+    }
+
+    const {effective_target} = goalSummary;
+
+    const appliedToday = await getTodayProgress(userId);
+
+    if(appliedToday >= effective_target) {
+        return;
+    }
+
+    const localHour = getCurrentHourInTimeZone(timezone);
+    const window = getWindowForHour(localHour);
+
+    const alreadySentRecently = await checkRecentNotification(
+        userId,
+        window,
+        timezone
+    );
+
+    if (alreadySentRecently) return;
+
+    const threshold = getWindowThreshold(window);
+
+    if(threshold !== null){
+        const progressFraction = effective_target > 0 ? appliedToday / effective_target: 0;
+
+        if (progressFraction >= threshold){
+            return;
+        }
+    }
+
+    const hoursRemaining = 23 - localHour;
+
+    const message = composeNotification(
+        {
+            window,
+            appliedToday,
+            effectiveTarget: effective_target,
+            hoursRemaining,
+        }
+    );
     
+    const sent = await sendToUser(userId, message);
+
+    if(sent) {
+        await logNotificationSent(userId, window, message.body);
+
+        console.log(
+            `[notifications] sent ${window} notification to user ${userId}:` +
+            `"${message.title}" | ${appliedToday}/${effective_target} applied`
+        );
+    }
 }
