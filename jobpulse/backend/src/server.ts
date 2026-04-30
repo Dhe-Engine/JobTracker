@@ -18,6 +18,7 @@ import { goalRoutes } from "./routes/goals.routes";
 import { gmailRoutes } from "./routes/gmail.routes";
 import { emailScanWorker } from "./workers/email-scan.worker";
 import { startDailySummaryCron } from "./workers/daily-summary.worker";
+import { startNotificationCron } from "./workers/notification.worker";
 
 
 /* 
@@ -154,11 +155,11 @@ async function main() {
         - host -> "0.0.0.0" for external access
     */
    await app.listen(
-    {
-        port: config.port,
-        host: "0.0.0.0",
-    }
-   );
+        {
+            port: config.port,
+            host: "0.0.0.0",
+        }
+    );
 
    /* 
    background cron startup
@@ -170,7 +171,10 @@ async function main() {
    */
   startDailySummaryCron();
 
-   console.log(`server running on port ${config.port}`);
+  //handle the notification process
+  startNotificationCron();
+  
+  console.log(`server running on port ${config.port}`);
 
 }
 
