@@ -26,5 +26,27 @@ export async function dashboardRoutes(app:FastifyInstance) {
             return reply.send(payload);
         }
     );
-    
+
+    /**
+     * POST
+     * /api/dashboard/dismiss-shame
+     */
+    app.post(
+        "/dismiss-shame",
+        {preHandler: requireAuth},
+        async (req, reply) => {
+            const {error} = await db
+                .from("streaks")
+                .update({shame_screen_pending:false})
+                .eq("user_id", req.user!.userId);
+
+            if(error){
+                return reply
+                    .status(500)
+                    .send({error: "failed to dismiss shame screen"});
+            }
+
+            return reply.send({ok: true});
+        }
+    );
 }
