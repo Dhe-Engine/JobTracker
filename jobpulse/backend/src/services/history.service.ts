@@ -9,20 +9,8 @@ what it does:
 */
 
 
-import Fastify from "fastify";
-import cookie from "@fastify/cookie";
-import cors from "@fastify/cors";
-
-import { config } from "./core/config";
-import { authRoutes } from "./routes/auth.routes";
-import { goalRoutes } from "./routes/goals.routes";
-import { gmailRoutes } from "./routes/gmail.routes";
-
-import { emailScanWorker } from "./workers/email-scan.worker";
-import { startDailySummaryCron } from "./workers/daily-summary.worker";
-import { startNotificationCron } from "./workers/notification.worker";
 import { db } from "../db/client";
-
+import { getTodayinTimeZone } from "../utils/timezone";
 
 
 //a single day activity
@@ -159,7 +147,12 @@ export async function getWeeklyHistory(
         .lte("date", dateRange[6])
         .order("date", {ascending: true});
 
-    const days = mergeSummariesWithDateRange(dateRange, summaries ?? []);
+    const normalizedSummaries = (summaries ?? []).map((s) => ({
+        ...s,
+        streak_day: s.streak_day ?? 0
+    }));
+
+    const days = mergeSummariesWithDateRange(dateRange, normalizedSummaries);
 
     const total_applied = days.reduce((sum, d) => sum + d.applied_count, 0);
     const days_met_target = days.filter((d) => d.met_target).length;
@@ -169,4 +162,66 @@ export async function getWeeklyHistory(
     }, null);
 
     return {days, total_applied, days_met_target, best_day}
+}
+
+//returns last 30days, streak and best 7 day streak
+export async function getMonthlyHistory(
+    userId: string
+): Promise<MonthlyHistory> {
+
+    const {data: user} = await db
+        .from("users")
+        .select("timezone")
+        .eq("id",userId)
+        .single();
+
+    const timezone = user?.timezone ?? "UTC";
+    const dateRange = buildDateRange(timezone, 30);
+
+    const [summariesResult, streakResult] = await Promise.all([
+        db
+            .from("daily_summaries")
+            .select("date, applied_count, target, met_target, streak_day")
+            .eq("user_id", userId)
+            .gte("date", dateRange[0])
+            .lte("date", dateRange[29])
+            .order("date",{ascending:true}),
+        db
+            .from("streaks")
+            .select("current_streak, longest_streak")
+            .eq("user_id",userId)
+            .single(),
+    ]);
+
+    const normalizedSummaries = (summariesResult.data ?? []).map((s) => ({
+        ...s,
+        streak_day: s.streak_day ?? 0,
+    }));
+
+    const days = mergeSummariesWithDateRange(
+        dateRange,
+        normalizedSummaries
+    );
+
+    const total_applied = days.reduce((sum,d) => sum + d.applied_count, 0);
+    const days_met_target = days.filter((d) => d.met_target).length;
+
+    //check for the best 7 days
+    let best_week_total = 0;
+    for(let i = 0; i <= days.length - 7; i++){
+        const weekTotal = days
+            .slice(i, i +7)
+            .reduce((sum, d) => sum + d.applied_count, 0);
+
+        if(weekTotal > best_week_total) best_week_total = weekTotal;
+    }
+
+    return {
+        days,
+        total_applied,
+        days_met_target,
+        current_streak: streakResult.data?.current_streak ?? 0,
+        longest_streak: streakResult.data?.longest_streak ?? 0,
+        best_week_total,
+    };
 }
