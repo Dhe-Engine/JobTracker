@@ -70,3 +70,24 @@ function computeIntensity(
     return 1;
 }
 
+//generate a list of past days based on the number specified and format to 'yyyy-mm-dd'
+function buildDateRange(timezone: string, days: number): string[] {
+    const dates: string[] = [];
+
+    const formatter = new Intl.DateTimeFormat("sv-SE",
+        {
+            timeZone: timezone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }
+    );
+
+    for(let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dates.push(formatter.format(d));
+    }
+
+    return dates;
+}
