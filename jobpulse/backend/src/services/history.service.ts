@@ -91,3 +91,46 @@ function buildDateRange(timezone: string, days: number): string[] {
 
     return dates;
 }
+
+/*
+merge db summaries with full date range 
+
+a day with no data should be filled with zero
+to prevent empty gaps in heatmap
+*/
+function mergeSummariesWithDateRange(
+    dateRange: string[],
+    summaries: Array<{
+        date: string;
+        applied_count: number;
+        target: number;
+        met_target: boolean;
+        streak_day: number;
+    }>
+): DayEntry[] {
+    const summaryMap = new Map(summaries.map((s) => [s.date, s]));
+
+    return dateRange.map((date) => {
+        const summary = summaryMap.get(date);
+
+        if (!summary){
+            return {
+                date,
+                applied_count: 0,
+                target: 0,
+                met_target: false,
+                streak_day: 0,
+                intensity: 0,
+            };
+        }
+
+        return {
+            date: summary.date,
+            applied_count: summary.applied_count,
+            target: summary.target,
+            met_target: summary.met_target,
+            streak_day: summary.streak_day,
+            intensity: computeIntensity(summary.applied_count, summary.target),
+        };
+    });
+}
