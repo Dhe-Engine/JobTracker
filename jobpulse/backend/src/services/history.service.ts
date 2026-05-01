@@ -53,3 +53,20 @@ export interface MonthlyHistory {
     longest_streak: number;
     best_week_total: number;
 }
+
+//maps the applied target to heatmap intensity
+function computeIntensity(
+    appliedCount: number,
+    target: number
+): 0 | 1 | 2 | 3 | 4 {
+
+    if(target === 0 || appliedCount === 0) return 0;;
+
+    const ratio = appliedCount / target;
+
+    if(ratio >= 1) return 4;
+    if(ratio >= 0.5) return 3;
+    if(ratio >= 0.25) return 2;
+    return 1;
+}
+
