@@ -21,6 +21,7 @@ import { gmailRoutes } from "./routes/gmail.routes";
 import { emailScanWorker } from "./workers/email-scan.worker";
 import { startDailySummaryCron } from "./workers/daily-summary.worker";
 import { startNotificationCron } from "./workers/notification.worker";
+import { db } from "../db/client";
 
 
 
@@ -133,4 +134,39 @@ function mergeSummariesWithDateRange(
             intensity: computeIntensity(summary.applied_count, summary.target),
         };
     });
+}
+
+
+//returns last 7 days activity and summary
+export async function getWeeklyHistory(
+    userId: string
+): Promise<WeeklyHistory> {
+
+    const {data: user} = await db
+        .from("users")
+        .select("timezone")
+        .eq("id", userId)
+        .single();
+    
+    const timezone = user?.timezone ?? "UTC";
+    const dateRange = buildDateRange(timezone, 7);
+
+    const {data: summaries} = await db
+        .from("daily_summaries")
+        .select("date, applied_count, target, met_target, streak_day")
+        .eq("user_id", userId)
+        .gte("date", dateRange[0])
+        .lte("date", dateRange[6])
+        .order("date", {ascending: true});
+
+    const days = mergeSummariesWithDateRange(dateRange, summaries ?? []);
+
+    const total_applied = days.reduce((sum, d) => sum + d.applied_count, 0);
+    const days_met_target = days.filter((d) => d.met_target).length;
+
+    const best_day = days.reduce<DayEntry | null>((best,d) => {
+        return !best || d.applied_count > best.applied_count ? d: best;
+    }, null);
+
+    return {days, total_applied, days_met_target, best_day}
 }
