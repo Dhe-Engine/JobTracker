@@ -71,4 +71,40 @@ export async function applicationRoutes(app: FastifyInstance){
             });
         }
     );
+
+
+    /**
+     * GET /api/applications/today
+     * 
+     * returns current application based on the user's timezone
+     */
+    app.get(
+        "/today",
+        {preHandler: requireAuth},
+        async (req, reply) => {
+            const {data: user} = await db
+                .from("users")
+                .select("timezone")
+                .eq("id", req.user!.userId)
+                .single();
+
+            const timezone = user?.timezone ?? "UTC";
+            const today = getTodayinTimeZone(timezone);
+
+            const {data, count} = await db
+                .from("applications")
+                .select("*", {count: "exact"})
+                .eq("user_id", req.user!.userId)
+                .gte("applied_at", `${today}T00:00:00+00:00`)
+                .lte("applied_at", `${today}T23:59:59+00:00`)
+                .order("applied_at", {ascending: false});
+
+            return reply.send({
+                applications: data ?? [],
+                count: count ?? 0,
+                date: today,
+            });
+        }
+    );
+
 }
