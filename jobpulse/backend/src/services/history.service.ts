@@ -138,13 +138,17 @@ export async function getWeeklyHistory(
     const timezone = user?.timezone ?? "UTC";
     const dateRange = buildDateRange(timezone, 7);
 
-    const {data: summaries} = await db
+    const {data: summaries, error} = await db
         .from("daily_summaries")
         .select("date, applied_count, target, met_target, streak_day")
         .eq("user_id", userId)
         .gte("date", dateRange[0])
         .lte("date", dateRange[6])
         .order("date", {ascending: true});
+    
+    if (error) {
+        throw new Error(`Failed to fetch summaries: ${error.message}`);
+    }
 
     const normalizedSummaries = (summaries ?? []).map((s) => ({
         ...s,
