@@ -1,11 +1,10 @@
 /*
-this file is responsible for preparing user activity history
+this file is responsible for preparing user activity data
 
 what it does:
-  - create and configure fastify
-  - register plugins and routes
-  - start background workers + cron jobs
-  - start the http server
+  - aggregates daily summaries into weekly and monthly views
+  - fills missing days for heatmap continuity
+  - computes totals, streaks, and performance insights
 */
 
 
