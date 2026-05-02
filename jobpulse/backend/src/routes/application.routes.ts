@@ -107,4 +107,43 @@ export async function applicationRoutes(app: FastifyInstance){
         }
     );
 
+    /**
+     * POST /api/applications
+     * 
+     * manually add an application (for jobs applied outside of email)
+     */
+    app.post<{Body: {company: string; role: string; applied_at?: string}}>(
+        "/",
+        {preHandler: requireAuth},
+        async (req, reply) => {
+            const schema = z.object({
+                company: z.string().min(1).max(200),
+                role: z.string().min(1).max(200),
+                applied_at: z.iso.datetime().optional(),
+            });
+
+            const input = schema.parse(req.body);
+
+            const {data, error} = await db
+                .from("applications")
+                .insert({
+                    user_id: req.user!.userId,
+                    company: input.company,
+                    role: input.role,
+                    status: "applied",
+                    source: "manual",
+                    email_id: null,
+                    applied_at: input.applied_at ?? new Date().toISOString(),
+                })
+                .select()
+                .single();
+
+                if(error) {
+                    return reply.status(500).send({error: "failed to add application"});
+                }
+
+                return reply.status(201).send({application: data});
+        }
+    );
+
 }
