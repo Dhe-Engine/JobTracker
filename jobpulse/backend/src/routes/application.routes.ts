@@ -146,4 +146,42 @@ export async function applicationRoutes(app: FastifyInstance){
         }
     );
 
+    /**
+     * PATCH /api/applications/:id
+     * 
+     * updates application status of a particular id
+     */
+    app.patch<{
+        Params: {id: string};
+        Body: {status: string};
+    }>(
+        "/:id",
+        {preHandler: requireAuth},
+        async (req, reply) => {
+            const schema = z.object({
+                status:z.enum(["applied", "interview", "offer", "rejected"]),
+            });
+
+            const {status} = schema.parse(req.body);
+
+            const {data, error} = await db
+                .from("applications")
+                .update({status})
+                .eq("id", req.params.id)
+                .eq("user_id", req.user!.userId)
+                .select()
+                .single();
+
+            if(error || !data){
+                return reply
+                    .status(404)
+                    .send({error: "application not found or access denied"});
+            }
+
+            return reply.send({application: data})
+        }
+    );
+
+    
+
 }
