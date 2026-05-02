@@ -182,6 +182,38 @@ export async function applicationRoutes(app: FastifyInstance){
         }
     );
 
-    
+    /**
+     * DELETE /api/applications/:id
+     * 
+     * delete only manual entries job application
+     */
+    app.delete<{ Params: { id: string } }>(
+    "/:id",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+        const { data: existing } = await db
+            .from("applications")
+            .select("id, source")
+            .eq("id", req.params.id)
+            .eq("user_id", req.user!.userId)
+            .single();
 
+        if (!existing) {
+            return reply.status(404).send({ error: "Application not found" });
+        }
+
+        if (existing.source === "email_auto") {
+            return reply.status(403).send({
+            error: "Auto-detected applications cannot be deleted",
+            });
+        }
+
+        await db
+            .from("applications")
+            .delete()
+            .eq("id", req.params.id);
+
+        return reply.send({ ok: true });
+    }
+  );
 }
