@@ -155,15 +155,15 @@ export async function handleGooglecallback(code:string) {
                 gmail_token: encryptToken(
                     JSON.stringify(
                         {
-                            access_token: tokens.access_token,
-                            refresh_token: tokens.refresh_token,
-                            expiry_data: tokens.expiry_date,
+                            access_token: tokens.access_token ?? "",
+                            refresh_token: tokens.refresh_token ?? "",
+                            expiry_data: tokens.expiry_date ?? 0,
                         }
                     )
                 ),
 
                 timezone: "UTC",
-                notifications_disabled: true,
+                notifications_enabled: true,
             },
             {
                 onConflict: "google_id", //ensure uniqueness at db level
@@ -228,7 +228,7 @@ export async function getGmailClientForUser(userId: string) {
     eq("id",userId).
     single();
 
-    if (error || user?.gmail_token){
+    if (error || !user?.gmail_token){
         throw new Error("User has no connected gmail account");
     }
 
