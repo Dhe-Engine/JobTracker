@@ -9,11 +9,10 @@ purpose:
 import {GoogleGenerativeAI} from "@google/generative-ai";
 import {config} from "../core/config";
 import type { EmailMetadata,ParsedEmail } from "../models/application.model";
-import { resolve } from "node:dns";
 
 
-//initialize google client
-const genAI = new GoogleGenerativeAI(config.google.apiKey);
+//initialize google clientge
+const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
 
 //ai model
 const model = genAI.getGenerativeModel({

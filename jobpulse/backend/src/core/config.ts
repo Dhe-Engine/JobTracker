@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { z } from "zod";
 
 /**
@@ -16,7 +15,7 @@ const envSchema = z.object(
         //set the mode the app is running, if not provided default to development
         NODE_ENV: z.enum(["development","production","test"]).default("development"),
 
-        //server port 
+        //server port z
         PORT: z.string().default("3001"),
 
         //google oauth for login, retrieve from google cloud console
@@ -55,6 +54,30 @@ parse and validate environment variables
 throws immediately if validation fails
 */
 const env = envSchema.parse(process.env);
+
+//safe firebase cloud messaging parsing
+function parseFcmServiceAccount() {
+  try {
+    const raw = env.FCM_SERVICE_ACCOUNT_KEY;
+
+    const parsed = JSON.parse(raw);
+
+    // 🔴 critical fix: normalize private key newlines
+    if (parsed.private_key) {
+      parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
+    }
+
+    // minimal sanity checks
+    if (!parsed.client_email || !parsed.private_key || !parsed.project_id) {
+      throw new Error("Invalid FCM service account structure");
+    }
+
+    return parsed;
+  } catch (err) {
+    console.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", err);
+    throw new Error("Invalid FCM configuration");
+  }
+}
 
 /*
 centralized application configuration object
@@ -106,7 +129,7 @@ export const config = {
         url: env.REDIS_URL,
      },
     
-     //anthropic / claude
+     //gemini
      gemini: {
         apiKey: env.GEMINI_API_KEY,
         model: "gemini-1.5-flash", //free, fast and good
@@ -114,14 +137,15 @@ export const config = {
 
      //firebase messaging
      fcm: {
-        projectId: env.FCM_PROJECT_ID,
-        serviceAccountKey: JSON.parse(env.FCM_SERVICE_ACCOUNT_KEY),
+        serviceAccountKey: parseFcmServiceAccount(),
+        // projectId: env.FCM_PROJECT_ID,
+        // serviceAccountKey: JSON.parse(env.FCM_SERVICE_ACCOUNT_KEY),
      },
 
      //business rule constants (from phase 2)
       rules: {
         carryoverCapMultiplier: 2, //br-03: missed apps carry over up to 2x base target
-        notificationCronSchedule: "*/5 * * * *", //every 15 mins
+        notificationCronSchedule: "*/15 * * * *", //every 15 mins
         dailySummaryCronSchedule: "0 0 * * *", //midnight everyday
       },
 
