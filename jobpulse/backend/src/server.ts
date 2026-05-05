@@ -13,9 +13,18 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import {config} from "./core/config";
+
+//routes
 import { authRoutes } from "./routes/auth.routes";
 import { goalRoutes } from "./routes/goals.routes";
 import { gmailRoutes } from "./routes/gmail.routes";
+import { dashboardRoutes }    from "./routes/dashboard.routes";
+import { applicationRoutes }  from "./routes/application.routes";
+import { historyRoutes }      from "./routes/history.routes";
+import { notificationRoutes } from "./routes/notifications.routes";
+import { accountRoutes }      from "./routes/account.routes";
+
+//workers
 import { emailScanWorker } from "./workers/email-scan.worker";
 import { startDailySummaryCron } from "./workers/daily-summary.worker";
 import { startNotificationCron } from "./workers/notification.worker";
@@ -72,62 +81,33 @@ async function buildServer() {
 
 
    /*
-   route group: authentication routes setup
-
-   register all auth related endpoints
+   register all every route group related endpoints
 
     example: 
         - /google -> /api/auth/google
     */
 
-   await app.register(authRoutes,{
-    prefix: "/api/auth",
-   });
+   await app.register(authRoutes,{prefix: "/api/auth",});
+   await app.register(goalRoutes,         { prefix: "/api/goals" });
+   await app.register(gmailRoutes,        { prefix: "/api/gmail" });
+   await app.register(dashboardRoutes,    { prefix: "/api/dashboard" });
+   await app.register(applicationRoutes,  { prefix: "/api/applications" });
+   await app.register(historyRoutes,      { prefix: "/api/history" });
+   await app.register(notificationRoutes, { prefix: "/api/notifications" });
+   await app.register(accountRoutes,      { prefix: "/api/account" })
 
+    /*
+    system route: health check setup
 
-   /**
-   register all the goal related endpoints
-    */
-
-   await app.register(goalRoutes, {
-    prefix: "/api/goals"
-   })
-
-
-   /*
-   register gmail integration routes
-   */
-
-  await app.register(gmailRoutes, {
-    prefix: "/api/gmail"
-  });
-
-  /*
-  background worker startup
-  
-  importing emailScanWorker starts automatically
-
-  purpose:
-    - listens for queued email scan jobs
-    - processes Gmail notifications in the background
-  */
-  emailScanWorker;
-
-
-   /*
-   system route: health check setup
-
-   function:
+    function:
     - used by hosting platform
     - quick check if server is running and responsive
 
-   method: GET 
-   path: /health
-   */
+    method: GET 
+    path: /health
+    */
 
-  app.get("/health", async () => {
-    return {status: "ok"};
-  });
+    app.get("/health", async () => ({status: "ok"}));
 
 
   return app //return configured server (not started yet)
@@ -154,32 +134,46 @@ async function main() {
         - port -> from environment
         - host -> "0.0.0.0" for external access
     */
-   await app.listen(
+    await app.listen(
         {
             port: config.port,
             host: "0.0.0.0",
         }
     );
 
-   /* 
-   background cron startup
+    /*
+    background worker startup
 
-   what it does:
+    importing emailScanWorker starts automatically
+
+    purpose:
+        - listens for queued email scan jobs
+        - processes Gmail notifications in the background
+    */
+    void emailScanWorker;
+
+    /* 
+    background cron startup
+
+    what it does:
         - start the daily summary scheduler after server is running
         - check every minute for users who just reached midnight
         - generate daily summary and update streak and carryover automatically
-   */
-  startDailySummaryCron();
+    */
+    startDailySummaryCron();
 
-  //handle the notification process
-  startNotificationCron();
-  
-  console.log(`server running on port ${config.port}`);
+    //handle the notification process
+    startNotificationCron();
+
+    console.log(`✅ Server running on port ${config.port}`);
+    console.log(`✅ Email scan worker running`);
+    console.log(`✅ Daily summary cron running`);
+    console.log(`✅ Notification cron running`);
 
 }
 
 //handle startup errors
 main().catch((err) => {
-console.error(err);
-process.exit(1);
+    console.error(err);
+    process.exit(1);
 });
