@@ -51,7 +51,7 @@ export async function goalRoutes(app:FastifyInstance) {
                     .number()
                     .int("target must be a whole number")
                     .min(1, "target must be atleast 1")
-                    .min(500, "target cannot exceed 500")
+                    .max(500, "target cannot exceed 500")
             });
 
             const input = schema.parse(req.body);
