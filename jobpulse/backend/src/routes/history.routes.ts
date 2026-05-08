@@ -22,7 +22,9 @@ export async function historyRoutes(app:FastifyInstance) {
     return last 7 days activity
     */
    app.get(
-        "/weekly", {preHandler: requireAuth}, async (req, reply) => {
+        "/weekly",
+        {preHandler: requireAuth},
+        async (req, reply) => {
             const history = await getWeeklyHistory(req.user!.userId);
             return reply.send(history);
         }
@@ -34,7 +36,9 @@ export async function historyRoutes(app:FastifyInstance) {
     * return last 30 days activity, streaks
     */
    app.get(
-    "monthly", {preHandler: requireAuth}, async (req, reply) => {
+    "/monthly",
+    {preHandler: requireAuth},
+     async (req, reply) => {
         const history = await getMonthlyHistory(req.user!.userId);
         return reply.send(history);
     }
