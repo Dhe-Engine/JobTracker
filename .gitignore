@@ -1,1 +1,2 @@
-jobpulse/backend/.env
+.env
+.env.*

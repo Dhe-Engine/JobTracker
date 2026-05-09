@@ -35,7 +35,7 @@ export async function setupGmailWatch(userId: string): Promise<void> {
     const {data} = await gmail.users.watch ({
         userId: "me",
         requestBody: {
-            topicName,
+            topicName: "projects/fast-art-245200/topics/jobpulse-gmail-push",
             labelIds: ["INBOX"],
         },
     });
