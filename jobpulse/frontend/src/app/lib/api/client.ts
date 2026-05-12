@@ -242,3 +242,25 @@ export const api = {
         options?: RequestOptions
     ) => request<T>("DELETE", path, options),
 };
+
+
+/*
+adapter function for use with swr
+
+SWR expects:
+    - a function that returns data
+    - or throws an error
+
+this converts api.get()
+into SWR-compatible behavior
+*/
+
+export async function swrFetcher<T>(path: string): Promise<T> {
+    const {data, error} = await api.get<T>(path);
+
+    if (error){
+        throw new Error(error.message);
+    }
+
+    return data as T;
+}
