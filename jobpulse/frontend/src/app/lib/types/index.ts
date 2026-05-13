@@ -6,6 +6,8 @@ what this file does:
     - keep the frontend and backend synchronized
  */
 
+
+//user
 export interface User{
 
     id: string;
@@ -16,3 +18,15 @@ export interface User{
     notifications_enabled: boolean;
     created_at: string;
 }
+
+//goal
+export type PeriodType = "daily" | "weekly";
+
+export interface GoalSummary {
+
+    base_target: number;
+    carryover: number;
+    effective_target: number;
+    period_type: PeriodType;
+}
+
