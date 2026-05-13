@@ -30,3 +30,19 @@ export interface GoalSummary {
     period_type: PeriodType;
 }
 
+//application
+export type ApplicationStatus = "applied" | "interview" | "offer" | "rejected";
+export type ApplicationSource = "email_auto" | "manual";
+
+export interface Application{
+
+    id: string;
+    user_id: string;
+    company: string;
+    role: string;
+    status: ApplicationStatus;
+    source: ApplicationSource;
+    email_id: string | null;
+    applied_at: string;
+    created_at: string;
+}
