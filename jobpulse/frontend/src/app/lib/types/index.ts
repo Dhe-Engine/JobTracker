@@ -46,3 +46,31 @@ export interface Application{
     applied_at: string;
     created_at: string;
 }
+
+//dashboard
+export interface DashboardToday{
+
+    applied_count: number;
+    effective_target: number;
+    base_target: number;
+    carryover: number;
+    progress_pct: number;
+    remaining: number;
+}
+
+export interface DashboardStreak{
+
+    current: number;
+    longest: number;
+    shame_screen_pending: boolean;
+}
+
+export interface DashboardPayload{
+
+    today: DashboardToday;
+    streak: DashboardStreak;
+    recent_applications: Pick<Application,
+        "id" | "company" | "role" | "status" | "applied_at"
+        >[];
+        goal_set: boolean;
+}
