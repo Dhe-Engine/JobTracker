@@ -74,3 +74,35 @@ export interface DashboardPayload{
         >[];
         goal_set: boolean;
 }
+
+//history
+export type HeatmapIntensity = 0 | 1 | 2 | 3 | 4;
+
+export interface DayEntry {
+
+    date: string;
+    applied_count: number;
+    target: number;
+    met_target: boolean;
+    streak_day: number;
+    intensity: HeatmapIntensity;
+}
+
+export interface WeeklyHistory {
+
+    days: DayEntry[];
+    total_applied: number;
+    days_met_target: number;
+    best_day: DayEntry | null; 
+}
+
+export interface MonthlyHistory {
+
+    days: DayEntry[];
+    total_applied: number;
+    days_met_target: number;
+    current_streak: number;
+    longest_streak: number;
+    best_week_total: number;
+}
+
