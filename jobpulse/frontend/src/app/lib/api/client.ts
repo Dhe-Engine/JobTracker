@@ -11,7 +11,10 @@ what it does:
 */
 
 
-//standardize api result wrapper
+/*
+Every API response is wrapped in this shape.
+Success:  { data: T, error: null } or Failure:  { data: null, error: ApiError }
+*/
 export interface ApiResult<T> {
     data: T | null;
     error: ApiError | null;
@@ -31,7 +34,7 @@ type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 interface RequestOptions {
 
     //query params appended to the url
-    params?: Record<string, string | number | boolean>;
+    params?: Record<string, string | number | boolean | null | undefined>;
 
     //Request body for POST/PATCH/PUT requests
     body?: unknown;
@@ -45,6 +48,7 @@ interface RequestOptions {
     //override revalidation time in seconds
     revalidate?: number;
 
+    credentials?: RequestCredentials;
 }
 
 
@@ -73,29 +77,33 @@ async function request<T>(
     const baseUrl =
       process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
+    //prevent double slashes  example: http://localhost:3001//api/dashboard
+    const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
+
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
     // ── Build final url ─────────────────────────────────────────────────────
 
-    let url = `${baseUrl}${path}`;
+    let url = `${normalizedBaseUrl}${normalizedPath}`;
 
     // Append query string if params exist
-    if (options.params && Object.keys(options.params).length > 0) {
+    if (options.params) {
 
-      const qs = new URLSearchParams(
+      const queryParams: Record<string, string> = {};
 
-        // URLSearchParams only accepts strings
-        // Convert every value to a string first
-        Object.entries(options.params).reduce(
-          (acc, [k, v]) => ({
-            ...acc,
-            [k]: String(v),
-          }),
-          {} as Record<string, string>
-        )
+      for (const [key, value] of Object.entries(options.params)) {
 
-      ).toString();
+        // skip undefined/null params
+        if (value !== undefined && value !== null) {
+          queryParams[key] = String(value);
+        }
+      }
 
-      url = `${url}?${qs}`;
+      const qs = new URLSearchParams(queryParams).toString();
+
+      if (qs) {
+        url = `${url}?${qs}`;
+      }
     }
 
 
@@ -103,91 +111,120 @@ async function request<T>(
 
     const headers: Record<string, string> = {
 
-      // Backend expects json requests
-      "Content-Type": "application/json",
-
       // Allow callers to override/add headers
       ...options.headers,
     };
 
+    if(options.body !== undefined) {
+      // Backend expects json requests
+      headers["Content-Type"] = "application/json";
+    }
+
+    //timeout to prevent it from hanging indefinitely
+    const controller = new AbortController();
+
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 15000);
 
     // ── Execute request ────────────────────────────────────────────────────
 
-    const response = await fetch(url, {
-      method,
-      headers,
+    try {
+      
+      const response = await fetch(url, {
+        method,
+        headers,
 
-      // Required so the browser sends the HttpOnly session cookie
-      credentials: "include",
+        // Required so the browser sends the HttpOnly session cookie
+        credentials: options.credentials ?? "include",
 
-      // Only attach a body if one exists
-      body:
-        options.body !== undefined
-          ? JSON.stringify(options.body)
+        // Only attach a body if one exists
+        body:
+          options.body !== undefined
+            ? JSON.stringify(options.body)
+            : undefined,
+
+        // Next.js cache revalidation config
+        next: options.revalidate
+          ? { revalidate: options.revalidate }
           : undefined,
 
-      // Next.js cache revalidation config
-      next: options.revalidate
-        ? { revalidate: options.revalidate }
-        : undefined,
+        cache: options.cache,
 
-      cache: options.cache,
-    });
+        signal: controller.signal
+      });
 
 
-    // ── Handle failed responses ────────────────────────────────────────────
+      // ── Handle failed responses ────────────────────────────────────────────
 
-    if (!response.ok) {
+      if (!response.ok) {
 
-      let message = `Request failed with status ${response.status}`;
+        let message = `Request failed with status ${response.status}`;
 
-      try {
+        try {
 
-        // Attempt to extract backend error message
-        const errBody = await response.json();
+          // Attempt to extract backend error message
+          const errBody = await response.json();
 
-        message =
-          errBody.error ??
-          errBody.message ??
-          message;
+          message =
+            errBody.error ??
+            errBody.message ??
+            message;
 
-      } catch {
+        } catch {
 
-        // Ignore json parsing failure
-        // Keep fallback message instead
+          // Ignore json parsing failure
+          // Keep fallback message instead
+        }
+
+        return {
+          data: null,
+          error: {
+            message,
+            status: response.status,
+          },
+        };
       }
+
+      // ── Handle empty responses ─────────────────────────────────────────────
+
+      // 204 means success with no response body
+      if (response.status === 204) {
+        return {
+          data: null,
+          error: null,
+        };
+      }
+
+      // ── Parse successful json response ─────────────────────────────────────
+
+      const data = (await response.json()) as T;
+
+      return {
+        data,
+        error: null,
+      };
+
+    } finally {
+
+      //clear timeout
+      clearTimeout(timeout);
+    }
+  
+  } catch (err) {
+
+    // timeout-specific handling
+    if (err instanceof Error && err.name === "AbortError") {
 
       return {
         data: null,
         error: {
-          message,
-          status: response.status,
+          message: "Request timed out",
+          status: 408,
+          raw: err,
         },
       };
-    }
-
-
-    // ── Handle empty responses ─────────────────────────────────────────────
-
-    // 204 means success with no response body
-    if (response.status === 204) {
-      return {
-        data: null,
-        error: null,
-      };
-    }
-
-
-    // ── Parse successful json response ─────────────────────────────────────
-
-    const data = (await response.json()) as T;
-
-    return {
-      data,
-      error: null,
-    };
-
-  } catch (err) {
+    } 
 
     // Network failure, CORS issue, or backend unreachable
     return {
@@ -256,6 +293,7 @@ into SWR-compatible behavior
 */
 
 export async function swrFetcher<T>(path: string): Promise<T> {
+  
     const {data, error} = await api.get<T>(path);
 
     if (error){
