@@ -106,3 +106,22 @@ export interface MonthlyHistory {
     best_week_total: number;
 }
 
+//api response
+export interface ApplicationResponse {
+
+    applications: Application[];
+    pagination: {
+        total: number;
+        page: number;
+        limit: number;
+        total_pages: number;
+    };
+}
+
+export interface TodayApplicationsResponse {
+
+    applications: Application[];
+    count: number;
+    date: string;
+}
+
