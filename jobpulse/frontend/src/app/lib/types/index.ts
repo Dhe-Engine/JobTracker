@@ -125,3 +125,12 @@ export interface TodayApplicationsResponse {
     date: string;
 }
 
+//generic success message
+export interface SuccessResponse {
+    ok: boolean;
+}
+
+//error shape
+export interface ErrorResponse {
+    error: string;
+}
