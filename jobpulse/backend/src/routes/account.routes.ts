@@ -34,8 +34,8 @@ export async function accountRoutes(app: FastifyInstance) {
             try{
                 await disconnectGmail(userId);
             }
-            catch{
-                console.warn(`[account] gmail disconnect failed for ${userId}`);
+            catch (err){
+                console.warn(`[account] gmail disconnect failed for ${userId}`, err);
             }
 
             //revoke google oauth token
@@ -47,15 +47,24 @@ export async function accountRoutes(app: FastifyInstance) {
                     .single();
 
                 if(user?.gmail_token){
-                    const tokenData = JSON.parse(decryptToken(user.gmail_token));
+                    const decrypted = decryptToken(user.gmail_token);
+
+                    const tokenData = JSON.parse(decrypted);
 
                     const oauthClient = new OAuth2Client(config.google.clientId);
 
-                    await oauthClient.revokeToken(tokenData.access_token);
+                    /*
+                    revoke refresh token instead of access token
+                    since refresh token is long lived while 
+                    access token automatically expires
+                    */
+                   if (tokenData.refresh_token) {
+                    await oauthClient.revokeToken(tokenData.refresh_token);
+                   }
                 }
             }
-            catch {
-                console.warn(`[account] Token revocation failed for ${userId}`)
+            catch (err){
+                console.warn(`[account] Token revocation failed for ${userId}`, err)
             }
 
             //delete user from database
@@ -68,7 +77,12 @@ export async function accountRoutes(app: FastifyInstance) {
                 return reply.status(500).send({ error: "Failed to delete account" });
             }
 
-            reply.clearCookie("session", {path: "/"});
+            reply.clearCookie("session", {
+                path: "/",
+                httpOnly: true,
+                secure: config.env === "production",
+                sameSite: "lax",
+            });
 
             return reply.send({
                 ok: true,
