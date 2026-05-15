@@ -73,5 +73,36 @@ export function useApplicationsOptions(options: UseApplicationsOptions = {}){
 
     return result;
    }
+
+   //update status which updates local cache before api responds
+   async function updateStatus(
+    id: string,
+    status: ApplicationStatus
+   ){
+
+    await mutate(
+        (current) => {
+            if (!current) return current;
+            return {
+                ...current,
+                applications: current.applications.map((app) => 
+                    app.id === id ? {...app, status} : app),
+            };
+        },
+        false   //skip immediate revalidation
+    );
+
+    const result = await api.patch<{application: Application}>(
+        `/api/applications/${id}`,
+        {status}
+    );
+
+    //revalidate whether success or failure
+    mutate();
+    
+    return result;
+   }
+
+   
 }
 
