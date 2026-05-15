@@ -15,3 +15,46 @@ const DASHBOARD_CONFIG = {
     dedupingInterval: 10_000 //prevent duplicate request within 10s
 } as const;
 
+export function useDashboard(){
+
+    const {data, error, isLoading, mutate} = useSWR<DashboardPayload>(
+        "/api/dashboard",
+        swrFetcher,
+        DASHBOARD_CONFIG
+    );
+
+    //hides the shame screen immediately and sync with server
+    async function dismissShameScreen(){
+
+        await mutate(
+            (current) => 
+                current
+                    ? {
+                        ...current,
+                        streak: {
+                            ...current.streak,
+                            shame_screen_pending: false,
+                        },
+                    }
+                : current,
+            false
+        );
+
+        //persist the change on the server
+        const {error} = await api.post("/api/dashboard/dismiss-shame");
+
+        //refetch authorative state if the request succedded
+        if(!error){
+            mutate();
+        }
+    } 
+
+    return {
+        dashboard: data ?? null,
+        isLoading,
+        isError: !!error,
+        errorMessage: error?.message ?? null,
+        dismissShameScreen,
+        refresh:() => mutate(),
+    };
+}
