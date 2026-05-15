@@ -46,6 +46,32 @@ export function useApplicationsOptions(options: UseApplicationsOptions = {}){
             //disable application list aggressive auto refresh
             revalidateOnFocus: false,
         }
-    )
+    );
+
+    /*
+    to create application:
+        - call the api
+        - revalidates the swr cache for the ui to be in sync
+        - return the result
+    */
+   async function addApplication(input: {
+    company: string;
+    role: string;
+    applied_at?: string;
+   }) {
+    
+    //call api
+    const result = await api.post<{application: Application}>(
+        "/api/applications",
+        input
+    );
+
+    //stay in sync
+    if(!result.error){
+        mutate(); 
+    }
+
+    return result;
+   }
 }
 
