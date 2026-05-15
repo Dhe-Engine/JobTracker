@@ -12,6 +12,7 @@ Handles:
 import useSWR from "swr";
 import { swrFetcher,api } from "@/app/lib/api/client";
 import type { Application, ApplicationStatus, ApplicationResponse } from "@/app/lib/types";
+import { refresh } from "next/cache";
 
 
 interface UseApplicationsOptions {
@@ -103,6 +104,47 @@ export function useApplicationsOptions(options: UseApplicationsOptions = {}){
     return result;
    }
 
-   
+   //delete application: removes the application locally first for feedback
+   async function deleteApplication(id: string) {
+    await mutate(
+        (current) => {
+            if(!current) return current;
+
+            return {
+                ...current,
+                applications: current.applications.filter(
+                    (app) => app.id !== id
+                ),
+                pagination: {
+                    ...current.pagination,
+                    total: current.pagination.total - 1,
+                },
+            };
+        },
+        false
+    );
+
+    const result = await api.delete(
+        `/api/applications/${id}`
+    );
+
+    mutate();
+
+    return result;
+   }
+
+   return {
+    applications: data?.applications ?? [],
+    pagination: data?.pagination ?? null,
+
+    isLoading,
+    isError: !!error,
+
+    addApplication,
+    updateStatus,
+    deleteApplication,
+
+    refresh: () => mutate(),
+   };
 }
 
