@@ -67,7 +67,7 @@ export function getStatusClasses(status: ApplicationStatus): string {
 //label for each status
 export function getStatusLabel(status: ApplicationStatus): string {
 
-    const labels: Record<ApplicationStatus, status> = {
+    const labels: Record<ApplicationStatus, string> = {
         applied: "Applied",
         interview: "Interview",
         offer: "Offer",
