@@ -11,13 +11,31 @@ import { swrFetcher } from "@/app/lib/api/client";
 import type { WeeklyHistory, MonthlyHistory } from "@/app/lib/types";
 
 
-//fetch the last 30 days activities
+//fetch the last 7 days activities
 export function useWeeklyHistory(){
 
     const {data, error, isLoading} = useSWR<WeeklyHistory>(
         "/api/history/weekly",
         swrFetcher,
         {revalidateOnFocus: false}
+    );
+
+    return {
+        history: data ?? null,
+        isLoading,
+        isError: !!error,
+    };
+}
+
+//fetch the last 30 days heatmap, streak data
+export function useMonthlyHistory(){
+
+    const {data, error, isLoading} = useSWR<MonthlyHistory>(
+        "/api/history/monthly",
+        swrFetcher,
+        {
+            revalidateOnFocus: false,
+        }
     );
 
     return {
