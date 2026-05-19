@@ -14,7 +14,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import Sidebar from "@/components/Sidebar";
 
-
 export default function DashboardLayout({
     children,
 }: {
