@@ -112,13 +112,19 @@ export async function authRoutes(app: FastifyInstance) {
         - returns safe, non-sensitive fields to client
     */
    app.get("/me",{preHandler: requireAuth},async (req, reply) => {
-        const {data: user} = await db
+        const {data: user, error} = await db
             .from("users")
-            .select("id,email,name,avatar_url,timezone,notifications_enabled,created_at")
+            .select("id,email,name,avatar_url,timezone,notifications_enabled,created_at,gmail_connected")
             .eq("id",req.user!.userId)
             .single();
 
-            return reply.send({user});
+        if (error || !user) {
+            return reply.status(404).send({
+                error: "User not found",
+            });
+        }
+
+        return reply.send({user});
     }
    );
 
