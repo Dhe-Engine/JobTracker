@@ -17,6 +17,7 @@ export interface User{
     timezone: string;
     notifications_enabled: boolean;
     created_at: string;
+    gmail_connected: boolean;
 }
 
 //goal
