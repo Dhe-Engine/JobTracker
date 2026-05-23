@@ -22,7 +22,7 @@ interface UseApplicationsOptions {
     date?: string;
 }
 
-export function useApplicationsOptions(options: UseApplicationsOptions = {}){
+export function useApplications(options: UseApplicationsOptions = {}){
 
     const {
         page = 1,
