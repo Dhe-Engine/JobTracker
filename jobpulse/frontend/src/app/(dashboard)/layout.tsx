@@ -24,7 +24,7 @@ export default function DashboardLayout({
 
     //redirect unauthenticated users back to landing page
     useEffect(() => {
-        if (!isLoading && !isAuthenticated) {
+        if (!isLoading && !isAuthenticated === false) {
             router.replace("/");
         }
     }, [isAuthenticated, isLoading, router]);
@@ -35,7 +35,7 @@ export default function DashboardLayout({
             <div className="flex h-screen items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-600 border-t-gray-200" />
             </div>
-        )
+        );
     }
 
     if(!isAuthenticated) return null;
