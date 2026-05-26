@@ -23,10 +23,14 @@ const NAV_ITEMS = [
     {href: "/settings", label: "Settings", icon: Settings},
 ] as const;
 
+function isActiveRoute(pathname: string, href: string) {
+    return pathname === href || pathname.startsWith(href + "/");
+}
+
 export default function Sidebar() {
 
     const pathname = usePathname();
-    const {user, logout} = useAuth();
+    const {user, logout, isLoading} = useAuth();
 
 
   return (
@@ -50,7 +54,7 @@ export default function Sidebar() {
               href={href}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                pathname === href
+                isActiveRoute(pathname, href)
                   ? "bg-gray-800 text-white"
                   : "text-gray-400 hover:bg-gray-800/50 hover:text-white"
               )}
@@ -115,7 +119,7 @@ export default function Sidebar() {
             href={href}
             className={cn(
               "flex flex-1 flex-col items-center gap-1 py-3 text-xs font-medium transition-colors",
-              pathname === href
+              isActiveRoute(pathname, href)
                 ? "text-white"
                 : "text-gray-500 hover:text-gray-300"
             )}
