@@ -12,7 +12,6 @@ Handles:
 import useSWR from "swr";
 import { swrFetcher,api } from "@/app/lib/api/client";
 import type { Application, ApplicationStatus, ApplicationResponse } from "@/app/lib/types";
-import { refresh } from "next/cache";
 
 
 interface UseApplicationsOptions {
