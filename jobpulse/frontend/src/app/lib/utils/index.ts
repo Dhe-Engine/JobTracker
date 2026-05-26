@@ -80,8 +80,8 @@ export function getStatusLabel(status: ApplicationStatus): string {
 export function getProgressColour(progressPct: number): string {
 
     if(progressPct >= 100) return "#22c55e";
-    if(progressPct >= 50) return "f59e0b";
-    if(progressPct >= 25) return "f97316";
+    if(progressPct >= 50) return "#f59e0b";
+    if(progressPct >= 25) return "#f97316";
 
     return "#ef4444"; 
 }
