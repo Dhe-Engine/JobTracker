@@ -25,7 +25,7 @@ export function formatDate(isoString: string): string {
     try{
         return format(parseISO(isoString), "MMM d, yyyy");
     }
-    catch{
+    catch {
         return "unknown date";
     }
 }
@@ -36,7 +36,7 @@ export function timeAgo(isoString: string): string{
     try{
         return formatDistanceToNow(parseISO(isoString), {addSuffix: true});
     }
-    catch{
+    catch {
         return "Unknown";
     }
 }
@@ -47,7 +47,7 @@ export function formatDayLabel(dateStr: string): string {
     try{
         return format(parseISO(dateStr), "EEE, MMM d");
     }
-    catch{
+    catch {
         return dateStr;
     }
 }
