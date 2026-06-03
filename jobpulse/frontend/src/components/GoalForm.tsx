@@ -8,7 +8,7 @@
 
   "use client";
 
-  import { useState, useEffect } from "react";
+  import { useState } from "react";
   import { useGoal } from "@/hooks/useGoal";
   import type { PeriodType } from "@/app/lib/types";
   import { cn } from "@/app/lib/utils";
