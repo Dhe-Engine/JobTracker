@@ -6,6 +6,7 @@ it:
     - show current day application progress
     - displays user streak
 */
+"use client";
 
 import { useDashboard } from "@/hooks/useDashboard";
 import ProgressRing from "@/components/ProgressRing";
