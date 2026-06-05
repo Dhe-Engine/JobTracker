@@ -101,7 +101,7 @@ export default function LandingPage() {
   }
 
   // Prevent the landing page flashing before redirecting
-  if (isLoading || isAuthenticated) {
+  if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-950">
         <div
@@ -111,6 +111,9 @@ export default function LandingPage() {
       </div>
     );
   }
+
+  //auth confirmed and user is logged in, show nothing
+  if (isAuthenticated) return null;
 
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100">
