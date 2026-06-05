@@ -22,9 +22,9 @@ export default function DashboardLayout({
     const { isAuthenticated, isLoading } = useAuth();
     const router = useRouter();
 
-    //redirect unauthenticated users back to landing page
+    //only redirect unauthenticated users back to landing page
     useEffect(() => {
-        if (!isLoading && !isAuthenticated === false) {
+        if (!isLoading && !isAuthenticated) {
             router.replace("/");
         }
     }, [isAuthenticated, isLoading, router]);
@@ -32,13 +32,15 @@ export default function DashboardLayout({
     //show nothing while checking authentication 
     if(isLoading){
         return (
-            <div className="flex h-screen items-center justify-center">
+            <div className="flex h-screen items-center justify-center bg-gray-950">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-600 border-t-gray-200" />
             </div>
         );
     }
 
-    if(!isAuthenticated) return null;
+    if(!isAuthenticated) {
+        return null;
+    }
 
     return(
         <div className="flex min-h-screen">
