@@ -1,3 +1,19 @@
+import dotenv from "dotenv";
+import path from "path";
+
+// Load .env before anything reads process.env
+// path.resolve ensures it finds the file regardless of where the server is started from
+dotenv.config({
+   path: path.resolve(process.cwd(), ".env"),
+});
+
+//temporary debugging (remove after confirming it works)
+console.log("Current working directory:", process.cwd());
+console.log(
+  "GOOGLE_CLIENT_ID loaded:",
+  !!process.env.GOOGLE_CLIENT_ID
+);
+
 import { z } from "zod";
 
 /**
