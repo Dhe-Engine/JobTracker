@@ -297,7 +297,19 @@ export async function swrFetcher<T>(path: string): Promise<T> {
     const {data, error} = await api.get<T>(path);
 
     if (error){
-        throw new Error(error.message);
+
+      const err = new Error(error.message) as Error & { status: number };
+      err.status = error.status;
+
+      if (error.status === 401 || error.status === 403){
+        throw err;
+      }
+
+      if (error.status === 0) {
+        throw err;
+      }
+      
+      throw err;
     }
 
     return data as T;
