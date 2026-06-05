@@ -28,6 +28,8 @@ export function useAuth() {
 
             //auth rarely change, so focus revalidation is unnecessary
             revalidateOnFocus: false,
+            dedupingInterval: 5000,
+            revalidateOnReconnect: false,
         }
     );
 
@@ -45,10 +47,15 @@ export function useAuth() {
     return {
         user: data?.user ?? null,
 
-        isAuthenticated:
-        !!data?.user && !error,
+        isAuthenticated: !!data?.user && !error,
 
         isLoading,
+
+        isDefinitelyLoggedOut:
+            !isLoading &&
+            !data?.user &&
+            error?.message !== undefined &&
+            !error.message.includes("Network error"),
 
         logout,
 
