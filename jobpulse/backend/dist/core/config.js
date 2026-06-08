@@ -1,0 +1,141 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.config = void 0;
+const dotenv_1 = __importDefault(require("dotenv"));
+const path_1 = __importDefault(require("path"));
+// Load .env before anything reads process.env
+// path.resolve ensures it finds the file regardless of where the server is started from
+dotenv_1.default.config({
+    path: path_1.default.resolve(process.cwd(), ".env"),
+});
+//temporary debugging (remove after confirming it works)
+console.log("Current working directory:", process.cwd());
+console.log("GOOGLE_CLIENT_ID loaded:", !!process.env.GOOGLE_CLIENT_ID);
+const zod_1 = require("zod");
+/**
+ * Environment Configuration Schema
+ *
+ * Defines and validates all required environment variables at application startup.
+ * If validation fails, the app crashes early with a clear error message.
+ *
+ * This avoids runtime failures caused by missing or invalid configuration.
+ */
+const envSchema = zod_1.z.object({
+    //application environment
+    //set the mode the app is running, if not provided default to development
+    NODE_ENV: zod_1.z.enum(["development", "production", "test"]).default("development"),
+    //server port z
+    PORT: zod_1.z.string().default("3001"),
+    //google oauth for login, retrieve from google cloud console
+    GOOGLE_CLIENT_ID: zod_1.z.string(), //app client id
+    GOOGLE_CLIENT_SECRET: zod_1.z.string(), //app secret key
+    GOOGLE_REDIRECT_URI: zod_1.z.string(), //url google redirects after login
+    //json settings
+    JWT_SECRET: zod_1.z.string().min(32), //jwt (long random secret string)
+    JWT_EXPIRES_IN: zod_1.z.string().default("7d"), //period the token is valid i.e 7 days
+    //encryption key for aes encryption
+    ENCRYPTION_KEY: zod_1.z.string().length(32), //aes encryption must be 32 characters
+    //supabase (database + backend service)
+    SUPABASE_URL: zod_1.z.string().url(), //url of supabaser project
+    SUPABASE_SERVICE_KEY: zod_1.z.string(), // use the service role key on the backend
+    //reddis for caching, sessions, queues
+    REDIS_URL: zod_1.z.string().default("redis://localhost:6379"), //points to local redis server
+    //ai feature (gemini)
+    GEMINI_API_KEY: zod_1.z.string(), //api key to access anthropic
+    //firebase cloud messaging for notifications
+    FCM_PROJECT_ID: zod_1.z.string(), //firebase id
+    FCM_SERVICE_ACCOUNT_KEY: zod_1.z.string(), //json string of the service account
+    //frontend url (for redirect after login)
+    FRONTEND_URL: zod_1.z.string().url().default("http://localhost:3000"),
+});
+/*
+parse and validate environment variables
+throws immediately if validation fails
+*/
+const env = envSchema.parse(process.env);
+//safe firebase cloud messaging parsing
+function parseFcmServiceAccount() {
+    try {
+        const raw = env.FCM_SERVICE_ACCOUNT_KEY;
+        const parsed = JSON.parse(raw);
+        // 🔴 critical fix: normalize private key newlines
+        if (parsed.private_key) {
+            parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
+        }
+        // minimal sanity checks
+        if (!parsed.client_email || !parsed.private_key || !parsed.project_id) {
+            throw new Error("Invalid FCM service account structure");
+        }
+        return parsed;
+    }
+    catch (err) {
+        console.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", err);
+        throw new Error("Invalid FCM configuration");
+    }
+}
+/*
+centralized application configuration object
+transforms raw env variables into a structured config used in the app
+*/
+exports.config = {
+    env: env.NODE_ENV,
+    // convert port to number once, instead of parsing repeatedly
+    port: parseInt(env.PORT),
+    // google auth config
+    google: {
+        clientId: env.GOOGLE_CLIENT_ID,
+        clientSecret: env.GOOGLE_CLIENT_SECRET,
+        redirectUri: env.GOOGLE_REDIRECT_URI,
+        //these are the exact oauth scopes we request from google
+        //"openid profile email" gives us the user's name and email
+        //the gmail scope gives us read-only inbox access
+        scopes: [
+            "openid",
+            "profile",
+            "email",
+            "https://www.googleapis.com/auth/gmail.readonly",
+        ],
+    },
+    // jwt config
+    jwt: {
+        secret: env.JWT_SECRET,
+        expiresIn: env.JWT_EXPIRES_IN,
+    },
+    // encryption config
+    encryption: {
+        key: env.ENCRYPTION_KEY
+    },
+    // supabase config
+    supabase: {
+        url: env.SUPABASE_URL,
+        serviceKey: env.SUPABASE_SERVICE_KEY,
+    },
+    // redis config 
+    redis: {
+        url: env.REDIS_URL,
+    },
+    //gemini
+    gemini: {
+        apiKey: env.GEMINI_API_KEY,
+        model: "gemini-1.5-flash", //free, fast and good
+    },
+    //firebase messaging
+    fcm: {
+        serviceAccountKey: parseFcmServiceAccount(),
+        // projectId: env.FCM_PROJECT_ID,
+        // serviceAccountKey: JSON.parse(env.FCM_SERVICE_ACCOUNT_KEY),
+    },
+    //business rule constants (from phase 2)
+    rules: {
+        carryoverCapMultiplier: 2, //br-03: missed apps carry over up to 2x base target
+        notificationCronSchedule: "*/15 * * * *", //every 15 mins
+        dailySummaryCronSchedule: "0 0 * * *", //midnight everyday
+    },
+    //frontend integration
+    frontend: {
+        url: env.FRONTEND_URL,
+    },
+}; //"as const makes all values readonly - prevents accidental mutation"
