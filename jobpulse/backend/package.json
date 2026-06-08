@@ -1,23 +1,26 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc --outDir dist",
+    "start": "node dist/server.js",
+    "dev":   "ts-node-dev --respawn src/server.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "commonjs",
-  "devDependencies": {
-    "@types/node": "^25.9.1",
-    "@types/node-cron": "^3.0.11"
-  },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.2.0",
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.4.2",
+    "fastify": "^5.8.5",
     "firebase-admin": "^13.8.0",
     "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
   }
 }
