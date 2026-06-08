@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc --outDir dist",
+    "build": "npx tsc --outDir dist",
     "start": "node dist/server.js",
     "dev":   "ts-node-dev --respawn src/server.ts"
   },
