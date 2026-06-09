@@ -8,7 +8,9 @@ WORKDIR /app
 # so npm install only re-runs when dependencies change
 COPY package*.json ./
 
-RUN npm ci --only=production
+RUN npm ci
+
+# RUN npm ci --only=production
 
 # Copy compiled source
 COPY . .
