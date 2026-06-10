@@ -26,7 +26,7 @@ export async function setupGmailWatch(userId: string): Promise<void> {
 
     //get oauth gmail client
     const { client } = await getGmailClientForUser(userId);
-    const gmail = google.gmail({version: "v1", auth: client});
+    const gmail = google.gmail({version: "v1", auth: client as any});
 
     //define sub topic
     const topicName = `projects/${process.env.GCP_PROJECT_ID}/topics/gmail-push`;
@@ -70,7 +70,7 @@ export async function getNewEmails(
 
     //get gmail client
     const {client} = await getGmailClientForUser(userId);
-    const gmail = google.gmail({version: "v1", auth: client});
+    const gmail = google.gmail({version: "v1", auth: client as any});
 
     //get stored historyId
     const {data: user} = await db
@@ -235,7 +235,7 @@ export async function disconnectGmail(userId: string): Promise<void> {
     try {
         
         const {client} = await getGmailClientForUser(userId);
-        const gmail = google.gmail({version: "v1", auth:client});
+        const gmail = google.gmail({version: "v1", auth:client as any});
 
         //stop notifications
         await gmail.users.stop({userId: "me"});

@@ -4,8 +4,6 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto"; //built into node - no install needed
 import { config } from "../core/config";
 import { db } from "../db/client";
-import { oauth2 } from "googleapis/build/src/apis/oauth2";
-import { email } from "zod";
 
 
 /*
@@ -134,7 +132,7 @@ export async function handleGooglecallback(code:string) {
     OAuthClient.setCredentials(tokens);
 
     //retrieve authenticated user profile
-    const oauth = google.oauth2({version:"v2", auth: OAuthClient});
+    const oauth = google.oauth2({version:"v2", auth: OAuthClient as any});
     const { data: googleUser } = await oauth.userinfo.get();
 
     if(!googleUser.id || !googleUser.email) {
