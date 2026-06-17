@@ -8,8 +8,8 @@ this ui component:
 
 import { useState } from "react";
 import { Trash2, Building2 } from "lucide-react";
-import { cn, getStatusClasses, getStatusLabel, timeAgo } from "@/app/lib/utils";
-import type { Application, ApplicationStatus } from "@/app/lib/types";
+import { cn, getStatusClasses, getStatusLabel, timeAgo } from "@/lib/utils";
+import type { Application, ApplicationStatus } from "@/lib/types";
 
 
 //store all applicatino status

@@ -15,7 +15,7 @@ what this page does:
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { api } from "@/app/lib/api/client";
+import { api } from "@/lib/api/client";
 import GoalForm from "@/components/GoalForm";
 import GmailConnectCard from "@/components/GmailConnectCard";
 import { usePushNotifications } from "@/hooks/usePushNotifications";

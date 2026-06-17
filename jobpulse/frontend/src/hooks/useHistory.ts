@@ -7,8 +7,8 @@ this file provides:
 
 
 import useSWR from "swr";
-import { swrFetcher } from "@/app/lib/api/client";
-import type { WeeklyHistory, MonthlyHistory } from "@/app/lib/types";
+import { swrFetcher } from "@/lib/api/client";
+import type { WeeklyHistory, MonthlyHistory } from "@/lib/types";
 
 
 //fetch the last 7 days activities

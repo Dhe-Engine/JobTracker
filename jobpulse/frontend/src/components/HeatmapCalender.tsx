@@ -8,9 +8,9 @@ this ui components:
 "use client";
 
 import { useState } from "react";
-import { getHeatmapClass, formatDayLabel } from "@/app/lib/utils";
-import type { DayEntry } from "@/app/lib/types";
-import { cn } from "@/app/lib/utils";
+import { getHeatmapClass, formatDayLabel } from "@/lib/utils";
+import type { DayEntry } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 
 // Props accepted by the HeatmapCalendar component

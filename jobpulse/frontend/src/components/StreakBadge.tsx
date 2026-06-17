@@ -4,7 +4,7 @@ this ui component displays the number of days the user met their target
 
 "use client";
 
-import { cn } from "@/app/lib/utils";
+import { cn } from "@/lib/utils";
 
 
 //prop(inputs) the component accepts

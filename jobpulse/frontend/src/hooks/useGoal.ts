@@ -7,8 +7,8 @@ this file handles:
 */
 
 import useSWR from "swr";
-import { swrFetcher,api } from "@/app/lib/api/client";
-import type { GoalSummary, PeriodType } from "@/app/lib/types";
+import { swrFetcher,api } from "@/lib/api/client";
+import type { GoalSummary, PeriodType } from "@/lib/types";
 
 
 //response shape from GET /api/goals/active

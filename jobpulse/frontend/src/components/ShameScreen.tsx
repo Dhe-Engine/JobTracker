@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import type { DashboardStreak, DashboardToday } from "@/app/lib/types";
+import type { DashboardStreak, DashboardToday } from "@/lib/types";
 
 interface ShameScreenProps {
 

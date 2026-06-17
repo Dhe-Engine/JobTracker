@@ -22,7 +22,7 @@ import {
   Loader2
 } from "lucide-react";
 
-import { api } from "@/app/lib/api/client";
+import { api } from "@/lib/api/client";
 import { useAuth } from "@/hooks/useAuth";
 
 

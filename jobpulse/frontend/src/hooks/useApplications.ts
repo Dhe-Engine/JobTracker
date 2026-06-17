@@ -10,8 +10,8 @@ Handles:
 */
 
 import useSWR from "swr";
-import { swrFetcher,api } from "@/app/lib/api/client";
-import type { Application, ApplicationStatus, ApplicationResponse } from "@/app/lib/types";
+import { swrFetcher,api } from "@/lib/api/client";
+import type { Application, ApplicationStatus, ApplicationResponse } from "@/lib/types";
 
 
 interface UseApplicationsOptions {

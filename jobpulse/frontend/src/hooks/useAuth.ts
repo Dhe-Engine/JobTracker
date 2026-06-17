@@ -8,8 +8,8 @@ this file handles:
 
 
 import useSWR from "swr";
-import { swrFetcher,api } from "@/app/lib/api/client";
-import type { User } from "@/app/lib/types";
+import { swrFetcher,api } from "@/lib/api/client";
+import type { User } from "@/lib/types";
 
 
 // Response shape from GET /api/auth/me

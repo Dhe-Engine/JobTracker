@@ -10,8 +10,8 @@
 
   import { useState } from "react";
   import { useGoal } from "@/hooks/useGoal";
-  import type { PeriodType } from "@/app/lib/types";
-  import { cn } from "@/app/lib/utils";
+  import type { PeriodType } from "@/lib/types";
+  import { cn } from "@/lib/utils";
 
 
   //set period types

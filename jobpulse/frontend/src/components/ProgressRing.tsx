@@ -6,7 +6,7 @@ this file:
 "use client";
 
 import {useMemo} from "react";
-import { getProgressColour, clamp } from "@/app/lib/utils";
+import { getProgressColour, clamp } from "@/lib/utils";
 
 
 interface ProgressRingProps {

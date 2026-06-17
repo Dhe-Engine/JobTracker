@@ -16,8 +16,8 @@ import { useState } from "react";
 import { Plus, Search, Filter, Loader2 } from "lucide-react";
 import { useApplications } from "@/hooks/useApplications";
 import ApplicationRow from "@/components/ApplicationRow";
-import type { ApplicationStatus } from "@/app/lib/types";
-import { cn } from "@/app/lib/utils"; 
+import type { ApplicationStatus } from "@/lib/types";
+import { cn } from "@/lib/utils"; 
 
 /*
 FILTER OPTIONS

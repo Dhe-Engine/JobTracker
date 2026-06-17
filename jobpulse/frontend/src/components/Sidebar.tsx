@@ -11,7 +11,7 @@ this file handles:
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {LayoutDashboard, ClipboardList, CalendarDays, Settings, LogOut, Zap} from "lucide-react";
-import { cn } from "@/app/lib/utils";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 
 

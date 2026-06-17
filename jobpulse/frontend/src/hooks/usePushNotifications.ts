@@ -9,7 +9,7 @@ this file handles:
 
 
 import { useState, useCallback } from "react";
-import { api } from "@/app/lib/api/client";
+import { api } from "@/lib/api/client";
 
 //prevent firebase from being initialized multiple times
 let messaging: unknown = null;
