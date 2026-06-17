@@ -84,8 +84,7 @@ export default function GmailConnectCard() {
 
     // Redirect browser to backend OAuth endpoint
     // Backend handles the entire Google login flow
-    window.location.href =
-      `${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`;
+    window.location.href ="/api/auth/google";
   }
 
 

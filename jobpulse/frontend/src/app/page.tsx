@@ -94,10 +94,9 @@ export default function LandingPage() {
 
   function handleLogin() {
     // Start the Google OAuth flow through the backend.
-    // The backend handles authentication and redirects
-    // back to the dashboard after success.
-    window.location.href =
-      `${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`;
+    // Relative path — goes through the Vercel rewrite to Railway,
+    // then Railway redirects to Google, then back through the same path
+    window.location.href = "/api/auth/google";
   }
 
   // Prevent the landing page flashing before redirecting
