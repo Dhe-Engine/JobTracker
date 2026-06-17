@@ -61,7 +61,7 @@ const envSchema = z.object(
         FCM_SERVICE_ACCOUNT_KEY: z.string(), //json string of the service account
 
         //frontend url (for redirect after login)
-        FRONTEND_URL: z.string().url().default("http://localhost:3000"),
+        FRONTEND_URL: z.url().default("https://jobtracker-liard-xi.vercel.app"),
     }
 );
 
