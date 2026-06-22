@@ -65,6 +65,8 @@ const envSchema = z.object(
     }
 );
 
+console.log("REDIS_URL =", process.env.REDIS_URL);
+
 /*
 parse and validate environment variables
 throws immediately if validation fails
