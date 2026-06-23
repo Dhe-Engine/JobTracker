@@ -36,11 +36,15 @@ export default function ShameScreen({
     const missed = today.carryover;
 
     async function handleDismiss() {
-        
-        //disable button immediately
-        setIsDismissing(true);
 
-        await onDismiss;
+        //disable button immediately
+        try {
+            setIsDismissing(true);
+            await onDismiss();
+        } catch (error) {
+            console.error("Failed to dismiss shame screen:", error);
+            setIsDismissing(false);
+        }
     }
 
     return (
