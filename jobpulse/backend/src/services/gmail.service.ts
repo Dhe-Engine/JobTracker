@@ -27,15 +27,20 @@ export async function setupGmailWatch(userId: string): Promise<void> {
     //get oauth gmail client
     const { client } = await getGmailClientForUser(userId);
     const gmail = google.gmail({version: "v1", auth: client as any});
+    
 
     //define sub topic
-    const topicName = `projects/${process.env.GCP_PROJECT_ID}/topics/gmail-push`;
+    const topicName = process.env.GCP_PROJECT_ID
+            ? `projects/${process.env.GCP_PROJECT_ID}/topics/gmail-push`
+            : (() => {
+                throw new Error("Missing GCP_PROJECT_ID");
+            })();
 
     //register gmail watch
     const {data} = await gmail.users.watch ({
         userId: "me",
         requestBody: {
-            topicName: "projects/fast-art-245200/topics/jobpulse-gmail-push",
+            topicName,
             labelIds: ["INBOX"],
         },
     });
@@ -86,12 +91,31 @@ export async function getNewEmails(
     }
 
     //retrieve history of changes
-    const {data: historyData} = await gmail.users.history.list({
-        userId: "me",
-        startHistoryId,
-        historyTypes: ["messageAdded"],
-        labelId: "INBOX",
-    });
+    let historyData;
+    
+    try {
+        const res = await gmail.users.history.list({
+            userId: "me",
+            startHistoryId,
+            historyTypes: ["messageAdded"],
+            labelId: "INBOX",
+        });
+
+        historyData = res.data;
+    }
+    catch(err: any) {
+        if (err?.code === 404) {
+            console.warn(
+                `[gmail] historyId expired for user ${userId}, resetting watch`
+            );
+
+            // reset watch instead of failing worker
+            await setupGmailWatch(userId);
+            return [];
+        }
+
+        throw err;
+    }
 
     const history = historyData.history ?? [];
 
@@ -129,7 +153,7 @@ export async function getNewEmails(
         const batch = uniqueMessageIds.slice(i, i + BATCH_SIZE);
 
         const results = await Promise.all(
-        batch.map((msgId) => fetchEmailMetadata(gmail, msgId))
+            batch.map((msgId) => fetchEmailMetadata(gmail, msgId))
         );
 
         emailMetadata.push(...results);
