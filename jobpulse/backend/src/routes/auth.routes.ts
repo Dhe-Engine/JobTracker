@@ -3,6 +3,7 @@ import { getGoogleAuthUrl,handleGooglecallback } from "../services/auth.service"
 import { requireAuth } from "../core/middleware";
 import { db } from "../db/client";
 import { config } from "../core/config";
+import { setupGmailWatch } from "../services/gmail.service";
 
 
 /*
@@ -65,7 +66,7 @@ export async function authRoutes(app: FastifyInstance) {
 
             try{
                 //step 3: complete oauth flow and generate session token
-                const {sessionToken} = await handleGooglecallback(req.query.code);
+                const {user, sessionToken} = await handleGooglecallback(req.query.code);
 
                 /*
                 step 4: set session cookie
@@ -78,16 +79,35 @@ export async function authRoutes(app: FastifyInstance) {
                     - sameSite: to reduce csrf risk
             
                 */
-               reply.setCookie("session",sessionToken, {
-                httpOnly: true,
-                secure: true,
-                sameSite: "lax",
-                maxAge: 60 * 60 * 24 * 7, 
-                path: "/",
-               });
+                reply.setCookie("session", sessionToken, {
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: "lax",
+                    maxAge: 60 * 60 * 24 * 7,
+                    path: "/",
+                });
 
-               //step 5: redirect user to dashboard after login
-               return reply.redirect(`${config.frontend.url}/dashboard`);
+                //step 5: setup gmail watch after login
+                setupGmailWatch(user.id)
+                    .then(async () => {
+                        // Mark as connected only if watch setup succeeded
+                        await db
+                            .from("users")
+                            .update({ gmail_connected: true })
+                            .eq("id", user.id);
+                        console.log(`[auth] Gmail watch set up for user ${user.id}`);
+                    })
+                    .catch((err) => {
+                        // Log but don't fail the login — user can connect manually from settings
+                        console.warn(
+                            `[auth] Gmail watch setup failed for user ${user.id} — ` +
+                            `user can connect manually from Settings:`,
+                            err?.message ?? err
+                        );
+                    });
+
+                //step 6: redirect user to dashboard after login
+                return reply.redirect(`${config.frontend.url}/dashboard`);
             }
 
             catch (err){
@@ -114,7 +134,7 @@ export async function authRoutes(app: FastifyInstance) {
    app.get("/me",{preHandler: requireAuth},async (req, reply) => {
         const {data: user, error} = await db
             .from("users")
-            .select("id,email,name,avatar_url,timezone,notifications_enabled,created_at,gmail_connected")
+            .select("id,email,name,avatar_url,timezone,notifications_enabled,gmail_connected,created_at")
             .eq("id",req.user!.userId)
             .single();
 

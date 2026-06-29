@@ -16,8 +16,8 @@ export interface User{
     avatar_url: string | null;
     timezone: string;
     notifications_enabled: boolean;
-    created_at: string;
     gmail_connected: boolean;
+    created_at: string;
 }
 
 //goal

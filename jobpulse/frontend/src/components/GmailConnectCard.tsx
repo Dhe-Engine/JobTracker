@@ -59,6 +59,12 @@ export default function GmailConnectCard() {
   // Stores error messages to show in the UI
   const [error, setError] = useState<string | null>(null);
 
+  //success messages to show in ui
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // CONNECTION STATE true | false to the authenticated user object.
+  const isConnected = (user as any)?.gmail_connected === true;
+
 
   // ───────────────────────────────────────────────────────────────────────────
   // HANDLE CONNECT
@@ -82,9 +88,28 @@ export default function GmailConnectCard() {
     // Clear old errors
     setError(null);
 
-    // Redirect browser to backend OAuth endpoint
-    // Backend handles the entire Google login flow
-    window.location.href = "/api/auth/google";
+    setSuccess(null);
+
+    const { error: apiError } = await api.post("/api/gmail/connect");
+
+    if (apiError) {
+      // If the error is about missing token, guide the user to re-login
+      if (apiError.message.includes("No Gmail token")) {
+        setError(
+          "Gmail access was not granted during login. " +
+          "Please sign out and sign in again — on the Google screen, " +
+          "make sure to allow Gmail access."
+        );
+      } else {
+        setError(apiError.message);
+      }
+    } else {
+      setSuccess("Gmail connected successfully!");
+      // Re-fetch the user so gmail_connected reflects TRUE in the UI
+      await refresh();
+    }
+
+    setIsConnecting(false);
   }
 
 
@@ -98,212 +123,97 @@ export default function GmailConnectCard() {
   //   - Existing tracked applications remain
   // ───────────────────────────────────────────────────────────────────────────
   async function handleDisconnect() {
-
-    // Safety confirmation popup
-    const confirmed = confirm(
-      "Disconnect Gmail? New application emails won't be tracked."
-    );
-
-    // Stop if user clicked Cancel
-    if (!confirmed) return;
-
-
-    // Show loading state
+    if (!confirm("Disconnect Gmail? New application emails won't be tracked.")) return;
     setIsDisconnecting(true);
-
-    // Clear old errors
     setError(null);
+    setSuccess(null);
 
+    const { error: apiError } = await api.post("/api/gmail/disconnect");
 
-    // Tell backend to disconnect Gmail
-    const { error } = await api.post("/api/gmail/disconnect");
-
-
-    // If backend returned an error
-    if (error) {
-
-      // Show error message
-      setError(error.message);
-
+    if (apiError) {
+      setError(apiError.message);
     } else {
-
-      // Re-fetch user data so UI updates immediately
-      refresh();
+      await refresh();
     }
 
-
-    // Stop loading state
     setIsDisconnecting(false);
   }
-
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // CONNECTION STATE
-  //
-  // Backend adds:
-  //   gmail_connected: true | false
-  //
-  // to the authenticated user object.
-  //
-  // We use that boolean to decide which UI to show.
-  // ───────────────────────────────────────────────────────────────────────────
-  const isConnected = user?.gmail_connected === true;
 
 
   // ───────────────────────────────────────────────────────────────────────────
   // UI
   // Everything below is what appears on screen.
   // ───────────────────────────────────────────────────────────────────────────
+
   return (
-
-    // Main card container
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-6">
-
-      {/* Top section */}
       <div className="flex items-start gap-4">
 
-
-        {/* ────────────────────────────────────────────────────────────────────
-            GMAIL ICON
-            Changes colour depending on connection state.
-           ──────────────────────────────────────────────────────────────────── */}
-        <div
-          className={`flex h-12 w-12 flex-shrink-0 items-center justify-center
-                      rounded-xl ${
-                        isConnected
-                          ? "bg-green-500/10"
-                          : "bg-gray-800"
-                      }`}
-        >
-          <Mail
-            className={`h-6 w-6 ${
-              isConnected
-                ? "text-green-400"
-                : "text-gray-500"
-            }`}
-          />
+        {/* Icon — green when connected, grey when not */}
+        <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center
+                          rounded-xl ${isConnected ? "bg-green-500/10" : "bg-gray-800"}`}>
+          <Mail className={`h-6 w-6 ${isConnected ? "text-green-400" : "text-gray-500"}`} />
         </div>
 
-
-        {/* ────────────────────────────────────────────────────────────────────
-            TEXT CONTENT
-           ──────────────────────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
-
-
-          {/* Header row */}
           <div className="flex items-center gap-2">
-
-            {/* Card title */}
-            <h3 className="font-semibold text-white">
-              Gmail integration
-            </h3>
-
-
-            {/* Status icon */}
-            {isConnected ? (
-
-              // Green check when connected
-              <CheckCircle2 className="h-4 w-4 text-green-400" />
-
-            ) : (
-
-              // Grey warning icon when disconnected
-              <AlertCircle className="h-4 w-4 text-gray-500" />
-            )}
+            <h3 className="font-semibold text-white">Gmail integration</h3>
+            {isConnected
+              ? <CheckCircle2 className="h-4 w-4 text-green-400" />
+              : <AlertCircle className="h-4 w-4 text-gray-500" />}
           </div>
 
-
-          {/* Main description */}
           <p className="mt-1 text-sm text-gray-400">
-
             {isConnected
               ? "Connected — application emails are being tracked automatically."
               : "Connect Gmail to automatically detect job application confirmation emails."}
           </p>
 
-
-          {/* Privacy explanation */}
           <p className="mt-2 text-xs text-gray-600">
             Read-only access · email subject and sender only · never the body
           </p>
 
-
           {/* Error message */}
           {error && (
-            <p className="mt-2 text-sm text-red-400">
-              {error}
-            </p>
+            <p className="mt-3 text-sm text-red-400 leading-relaxed">{error}</p>
+          )}
+
+          {/* Success message */}
+          {success && (
+            <p className="mt-3 text-sm text-green-400">{success}</p>
           )}
         </div>
       </div>
 
-
-      {/* ──────────────────────────────────────────────────────────────────────
-          ACTION BUTTONS
-          Shows different buttons depending on connection state.
-         ────────────────────────────────────────────────────────────────────── */}
       <div className="mt-5">
-
-        {/* ── CONNECTED STATE ── */}
         {isConnected ? (
-
           <button
-
-            // Disconnect Gmail
             onClick={handleDisconnect}
-
-            // Disable while disconnecting
             disabled={isDisconnecting}
-
             className="rounded-lg border border-gray-700 px-4 py-2 text-sm
                        font-medium text-gray-400 transition hover:border-red-800
-                       hover:text-red-400 disabled:cursor-not-allowed
-                       disabled:opacity-50"
+                       hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
-
-            {/* Show spinner while disconnecting */}
-            {isDisconnecting ? (
-
-              <Loader2 className="h-4 w-4 animate-spin" />
-
-            ) : (
-
-              "Disconnect Gmail"
-            )}
+            {isDisconnecting
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : "Disconnect Gmail"}
           </button>
-
         ) : (
-
-          // ── DISCONNECTED STATE ──
           <button
-
-            // Start OAuth flow
             onClick={handleConnect}
-
-            // Disable while redirecting
             disabled={isConnecting}
-
             className="flex items-center gap-2 rounded-lg bg-white px-5 py-2.5
                        text-sm font-semibold text-gray-900 transition
-                       hover:bg-gray-100 disabled:cursor-not-allowed
-                       disabled:opacity-50"
+                       hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-
-            {/* Loading spinner or Gmail icon */}
-            {isConnecting ? (
-
-              <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
-
-            ) : (
-
-              <Mail className="h-4 w-4" />
-            )}
-
-            Connect Gmail
+            {isConnecting
+              ? <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
+              : <Mail className="h-4 w-4" />}
+            {isConnecting ? "Connecting..." : "Connect Gmail"}
           </button>
         )}
       </div>
     </div>
   );
 }
+

@@ -8,6 +8,7 @@ responsibilities:
     - connect a user's Gmail account for inbox monitoring
     - disconnect Gmail and stop inbox monitoring
     - receive Gmail push notifications from Google Pub/Sub
+    - finds which user the email belongs to
     - enqueue background jobs to scan for new emails
 
 parameter:
@@ -20,9 +21,11 @@ import { requireAuth } from "../core/middleware";
 import { setupGmailWatch, disconnectGmail } from "../services/gmail.service";
 import { emailScanQueue } from "../workers/email-scan.worker";
 import { db } from "../db/client";
+import { exists } from "node:fs";
+import { error } from "node:console";
 
 
-
+//register all gmail related routes
 export async function gmailRoutes(app: FastifyInstance) {
 
     /*
@@ -35,21 +38,52 @@ export async function gmailRoutes(app: FastifyInstance) {
         /api/gmail/connect
 
     function:
-        - requires authentication
-        - sets up Gmail watch subscription
-        - allows Google to send push notifications when new emails arrive
+        - The user must have a Gmail token.
+        - Gmail "watch" notifications must be enabled.
+        - The database must mark Gmail as connected.
     */
 
     app.post(
         "/connect",
         { preHandler: requireAuth },
         async (req, reply) => {
-            await setupGmailWatch(req.user!.userId);
+            const userId = req.user!.userId;
 
-            return reply.send({
-                ok: true,
-                message: "Gmail connected",
-            });
+            //step 1: verify gmail access exists
+            const {data: user} = await db
+                .from("users")
+                .select("gmail_token")
+                .eq("id", userId)
+                .single();
+
+                if(!user?.gmail_token){
+                    return reply.status(400).send({
+                        error: "No Gmail token found. Please sign in with Google first to grant Gmail access.",
+                    });
+                }
+
+            try {
+                //step 2: Gmail to start sending notifications
+                await setupGmailWatch(userId);
+
+                //step 3: mark gmail as connected
+                await db
+                    .from("users")
+                    .update({gmail_connected: true})
+                    .eq("id", userId);
+
+                return reply.send({
+                    ok: true,
+                    message: "Gmail connected",
+                });
+            } 
+            catch (err) {
+                console.error("[gmail/connect] failed to setup gmail watch", err);
+
+                return reply.status(500).send({
+                    error: "Failed to connect Gmail. Check that your Google Cloud Pub/Sub topic is configured.",
+                });
+            }
         }
     );
 
@@ -70,7 +104,16 @@ export async function gmailRoutes(app: FastifyInstance) {
         {preHandler: requireAuth},
         async (req, reply) => {
 
-            await disconnectGmail(req.user!.userId);
+            const userId = req.user!.userId;
+
+            //stop gmail notifications
+            await disconnectGmail(userId);
+
+            //update database
+            await db
+                .from("users")
+                .update({gmail_connected: false})
+                .eq("id", userId);
 
             return reply.send({
                 ok: true,

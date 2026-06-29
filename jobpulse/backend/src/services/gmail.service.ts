@@ -99,7 +99,7 @@ export async function getNewEmails(
             startHistoryId,
             historyTypes: ["messageAdded"],
             labelId: "INBOX",
-        });
+        });if (!startHistoryId)
 
         historyData = res.data;
     }
