@@ -10,9 +10,11 @@ import {google} from "googleapis";
 import { db } from "../db/client";
 import { getGmailClientForUser } from "./auth.service";
 import type { EmailMetadata } from "../models/application.model";
+import { config } from "../core/config";
 
 
 export async function setupGmailWatch(userId: string): Promise<void> {
+    console.log(`[gmail] Setting up watch for user ${userId}`);
 
     /*
     setup gmail notifications
@@ -30,36 +32,54 @@ export async function setupGmailWatch(userId: string): Promise<void> {
     
 
     //define sub topic
-    const topicName = process.env.GCP_PROJECT_ID
-            ? `projects/${process.env.GCP_PROJECT_ID}/topics/gmail-push`
-            : (() => {
-                throw new Error("Missing GCP_PROJECT_ID");
-            })();
+    const topicName = config.google.pubsubTopic;
+
+    console.log(`[gmail] Using Pub/Sub topic: ${topicName}`);
 
     //register gmail watch
-    const {data} = await gmail.users.watch ({
-        userId: "me",
-        requestBody: {
-            topicName,
-            labelIds: ["INBOX"],
-        },
-    });
+    let data;
 
-    //store bookmark to track last processed email
-    const expiry = data.expiration != null ? Number(data.expiration): null;
+    try {
+        const response = await gmail.users.watch({
+            userId: "me",
+            requestBody: {
+                topicName,
+                labelIds: ["INBOX"],
+            },
+        });
+        data = response.data;
+    } catch (err: any) {
+        // Log the full error so Railway shows exactly what Gmail rejected
+        console.error(`[gmail] gmail.users.watch() failed:`, {
+            message: err?.message,
+            code: err?.code,
+            status: err?.status,
+            errors: err?.errors,
+        });
+        throw err;
+    }
 
-    if (expiry != null && Number.isNaN(expiry)){
-        throw new Error("invalid gmail expiration value");
+    const expiry = data.expiration != null ? Number(data.expiration) : null;
+
+    if (expiry != null && Number.isNaN(expiry)) {
+        throw new Error("Invalid gmail expiration value returned from watch");
     }
 
     await db
         .from("users")
         .update({
             gmail_history_id: data.historyId ?? null,
-            gmail_watch_expiry: expiry
+            gmail_watch_expiry: expiry,
         })
-        .eq("id", userId);       
-}
+        .eq("id", userId);
+
+    console.log(`[gmail] Watch set up successfully`, {
+        userId,
+        historyId: data.historyId,
+        expiresAt: expiry ? new Date(expiry).toISOString() : null,
+    });
+}    
+
 
 export async function getNewEmails(
     userId: string,
@@ -99,7 +119,7 @@ export async function getNewEmails(
             startHistoryId,
             historyTypes: ["messageAdded"],
             labelId: "INBOX",
-        });if (!startHistoryId)
+        }); 
 
         historyData = res.data;
     }
