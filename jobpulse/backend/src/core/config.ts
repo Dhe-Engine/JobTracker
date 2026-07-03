@@ -152,7 +152,7 @@
       //gemini
       gemini: {
           apiKey: env.GEMINI_API_KEY,
-          model: "gemini-1.5-flash", //free, fast and good
+          model: "gemini-2.5-flash", //free, fast and good
       },
 
       //firebase messaging
