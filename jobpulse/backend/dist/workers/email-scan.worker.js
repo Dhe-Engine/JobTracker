@@ -147,5 +147,5 @@ function extractCompanyFromSender(from) {
     //infer company name
     const parts = domain.split(".");
     const companyPart = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-    return companyPart.charAt(0).toUpperCase + companyPart.slice(1);
+    return companyPart.charAt(0).toUpperCase() + companyPart.slice(1);
 }

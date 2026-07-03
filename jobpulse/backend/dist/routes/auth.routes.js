@@ -5,6 +5,7 @@ const auth_service_1 = require("../services/auth.service");
 const middleware_1 = require("../core/middleware");
 const client_1 = require("../db/client");
 const config_1 = require("../core/config");
+const gmail_service_1 = require("../services/gmail.service");
 /*
 authroutes is a route registration function
 
@@ -55,7 +56,7 @@ async function authRoutes(app) {
         }
         try {
             //step 3: complete oauth flow and generate session token
-            const { sessionToken } = await (0, auth_service_1.handleGooglecallback)(req.query.code);
+            const { user, sessionToken } = await (0, auth_service_1.handleGooglecallback)(req.query.code);
             /*
             step 4: set session cookie
 
@@ -69,12 +70,27 @@ async function authRoutes(app) {
             */
             reply.setCookie("session", sessionToken, {
                 httpOnly: true,
-                secure: config_1.config.env === "production",
+                secure: true,
                 sameSite: "lax",
                 maxAge: 60 * 60 * 24 * 7,
                 path: "/",
             });
-            //step 5: redirect user to dashboard after login
+            //step 5: setup gmail watch after login
+            (0, gmail_service_1.setupGmailWatch)(user.id)
+                .then(async () => {
+                // Mark as connected only if watch setup succeeded
+                await client_1.db
+                    .from("users")
+                    .update({ gmail_connected: true })
+                    .eq("id", user.id);
+                console.log(`[auth] Gmail watch set up for user ${user.id}`);
+            })
+                .catch((err) => {
+                // Log but don't fail the login — user can connect manually from settings
+                console.warn(`[auth] Gmail watch setup failed for user ${user.id} — ` +
+                    `user can connect manually from Settings:`, err?.message ?? err);
+            });
+            //step 6: redirect user to dashboard after login
             return reply.redirect(`${config_1.config.frontend.url}/dashboard`);
         }
         catch (err) {
@@ -99,7 +115,7 @@ async function authRoutes(app) {
     app.get("/me", { preHandler: middleware_1.requireAuth }, async (req, reply) => {
         const { data: user, error } = await client_1.db
             .from("users")
-            .select("id,email,name,avatar_url,timezone,notifications_enabled,created_at,gmail_connected")
+            .select("id,email,name,avatar_url,timezone,notifications_enabled,gmail_connected,created_at")
             .eq("id", req.user.userId)
             .single();
         if (error || !user) {

@@ -13,7 +13,9 @@ exports.disconnectGmail = disconnectGmail;
 const googleapis_1 = require("googleapis");
 const client_1 = require("../db/client");
 const auth_service_1 = require("./auth.service");
+const config_1 = require("../core/config");
 async function setupGmailWatch(userId) {
+    console.log(`[gmail] Setting up watch for user ${userId}`);
     /*
     setup gmail notifications
 
@@ -27,27 +29,46 @@ async function setupGmailWatch(userId) {
     const { client } = await (0, auth_service_1.getGmailClientForUser)(userId);
     const gmail = googleapis_1.google.gmail({ version: "v1", auth: client });
     //define sub topic
-    const topicName = `projects/${process.env.GCP_PROJECT_ID}/topics/gmail-push`;
+    const topicName = config_1.config.google.pubsubTopic;
+    console.log(`[gmail] Using Pub/Sub topic: ${topicName}`);
     //register gmail watch
-    const { data } = await gmail.users.watch({
-        userId: "me",
-        requestBody: {
-            topicName: "projects/fast-art-245200/topics/jobpulse-gmail-push",
-            labelIds: ["INBOX"],
-        },
-    });
-    //store bookmark to track last processed email
+    let data;
+    try {
+        const response = await gmail.users.watch({
+            userId: "me",
+            requestBody: {
+                topicName,
+                labelIds: ["INBOX"],
+            },
+        });
+        data = response.data;
+    }
+    catch (err) {
+        // Log the full error so Railway shows exactly what Gmail rejected
+        console.error(`[gmail] gmail.users.watch() failed:`, {
+            message: err?.message,
+            code: err?.code,
+            status: err?.status,
+            errors: err?.errors,
+        });
+        throw err;
+    }
     const expiry = data.expiration != null ? Number(data.expiration) : null;
     if (expiry != null && Number.isNaN(expiry)) {
-        throw new Error("invalid gmail expiration value");
+        throw new Error("Invalid gmail expiration value returned from watch");
     }
     await client_1.db
         .from("users")
         .update({
         gmail_history_id: data.historyId ?? null,
-        gmail_watch_expiry: expiry
+        gmail_watch_expiry: expiry,
     })
         .eq("id", userId);
+    console.log(`[gmail] Watch set up successfully`, {
+        userId,
+        historyId: data.historyId,
+        expiresAt: expiry ? new Date(expiry).toISOString() : null,
+    });
 }
 async function getNewEmails(userId, historyId) {
     /*
@@ -70,12 +91,25 @@ async function getNewEmails(userId, historyId) {
         throw new Error("missing historyId for gmail sync");
     }
     //retrieve history of changes
-    const { data: historyData } = await gmail.users.history.list({
-        userId: "me",
-        startHistoryId,
-        historyTypes: ["messageAdded"],
-        labelId: "INBOX",
-    });
+    let historyData;
+    try {
+        const res = await gmail.users.history.list({
+            userId: "me",
+            startHistoryId,
+            historyTypes: ["messageAdded"],
+            labelId: "INBOX",
+        });
+        historyData = res.data;
+    }
+    catch (err) {
+        if (err?.code === 404) {
+            console.warn(`[gmail] historyId expired for user ${userId}, resetting watch`);
+            // reset watch instead of failing worker
+            await setupGmailWatch(userId);
+            return [];
+        }
+        throw err;
+    }
     const history = historyData.history ?? [];
     //extract message ids
     const newMessageIds = [];

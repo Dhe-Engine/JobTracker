@@ -33,6 +33,7 @@ const envSchema = zod_1.z.object({
     GOOGLE_CLIENT_ID: zod_1.z.string(), //app client id
     GOOGLE_CLIENT_SECRET: zod_1.z.string(), //app secret key
     GOOGLE_REDIRECT_URI: zod_1.z.string(), //url google redirects after login
+    GOOGLE_PUBSUB_TOPIC: zod_1.z.string(), //e.g. projects/fast-art-245200/topics/jobpulse-gmail-push
     //json settings
     JWT_SECRET: zod_1.z.string().min(32), //jwt (long random secret string)
     JWT_EXPIRES_IN: zod_1.z.string().default("7d"), //period the token is valid i.e 7 days
@@ -49,8 +50,9 @@ const envSchema = zod_1.z.object({
     FCM_PROJECT_ID: zod_1.z.string(), //firebase id
     FCM_SERVICE_ACCOUNT_KEY: zod_1.z.string(), //json string of the service account
     //frontend url (for redirect after login)
-    FRONTEND_URL: zod_1.z.string().url().default("http://localhost:3000"),
+    FRONTEND_URL: zod_1.z.url().default("https://job-tracker-liard-xi.vercel.app/"),
 });
+console.log("REDIS_URL =", process.env.REDIS_URL);
 /*
 parse and validate environment variables
 throws immediately if validation fails
@@ -89,6 +91,7 @@ exports.config = {
         clientId: env.GOOGLE_CLIENT_ID,
         clientSecret: env.GOOGLE_CLIENT_SECRET,
         redirectUri: env.GOOGLE_REDIRECT_URI,
+        pubsubTopic: env.GOOGLE_PUBSUB_TOPIC,
         //these are the exact oauth scopes we request from google
         //"openid profile email" gives us the user's name and email
         //the gmail scope gives us read-only inbox access
@@ -120,7 +123,7 @@ exports.config = {
     //gemini
     gemini: {
         apiKey: env.GEMINI_API_KEY,
-        model: "gemini-1.5-flash", //free, fast and good
+        model: "gemini-2.5-flash", //free, fast and good
     },
     //firebase messaging
     fcm: {

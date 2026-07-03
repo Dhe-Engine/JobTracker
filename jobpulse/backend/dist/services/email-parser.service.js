@@ -1,7 +1,7 @@
 "use strict";
 /*
 purpose:
-    - send incoming emails metadata to claude ai for classification
+    - send incoming emails metadata to gemini ai for classification
     - check if an email is a job application confirmation
     - extract the data: company, role, confidence
 */
@@ -14,9 +14,9 @@ const config_1 = require("../core/config");
 const genAI = new generative_ai_1.GoogleGenerativeAI(config_1.config.gemini.apiKey);
 //ai model
 const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash"
+    model: config_1.config.gemini.model,
 });
-//system prompt to define how claude behaves
+//system prompt to define how gemini behaves
 const CLASSIFICATION_SYSTEM_PROMPT = `
 You are an email classifier for a job application tracking email.
 
