@@ -60,5 +60,5 @@ export interface EmailMetadata {
     subject: string;
     from: string;
     received_at: string;
-    
+    body:string;
 }

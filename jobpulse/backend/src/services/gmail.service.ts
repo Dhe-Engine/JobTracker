@@ -167,20 +167,20 @@ export async function getNewEmails(
 
     //fetch metadata in parallel
     const BATCH_SIZE = 5;
-    const emailMetadata: (EmailMetadata | null)[] = [];
+    const emailResults: (EmailMetadata | null)[] = [];
 
     for (let i = 0; i < uniqueMessageIds.length; i += BATCH_SIZE) {
         const batch = uniqueMessageIds.slice(i, i + BATCH_SIZE);
 
         const results = await Promise.all(
-            batch.map((msgId) => fetchEmailMetadata(gmail, msgId))
+            batch.map((msgId) => fetchEmailFull(gmail, msgId))
         );
 
-        emailMetadata.push(...results);
+        emailResults.push(...results);
     }
 
     //filter valid results
-    const validEmails = emailMetadata.filter(
+    const validEmails = emailResults.filter(
         (e): e is EmailMetadata => e !== null
     );
 
@@ -193,64 +193,65 @@ export async function getNewEmails(
     return validEmails;
 }
 
-async function fetchEmailMetadata(
-    gmail:ReturnType<typeof google.gmail>,
-    messageId: string
-): Promise<EmailMetadata | null> {
+// async function fetchEmailMetadata(
+//     gmail:ReturnType<typeof google.gmail>,
+//     messageId: string
+// ): Promise<EmailMetadata | null> {
     
-    /*
-    fetch the metadata for a single email
+//     /*
+//     fetch the metadata for a single email
 
-    returns: 
-        - subject
-        - sender
-        - received timestamp
-    */
+//     returns: 
+//         - subject
+//         - sender
+//         - received timestamp
+//     */
 
-    try {
-        const {data:message} = await gmail.users.messages.get({
+//     try {
+//         const {data:message} = await gmail.users.messages.get({
 
-            userId: "me",
-            id: messageId,
-            format: "metadata",
-            metadataHeaders: ["Subject", "From", "Date"],
-        });
+//             userId: "me",
+//             id: messageId,
+//             format: "metadata",
+//             metadataHeaders: ["Subject", "From", "Date"],
+//         });
 
-        const headers = message.payload?.headers ?? [];
+//         const headers = message.payload?.headers ?? [];
 
-        //get header value by name
-        const getHeader = (name: string): string => {
+//         //get header value by name
+//         const getHeader = (name: string): string => {
 
-            const header = headers.find(
-                (h) => h.name?.toLowerCase() === name.toLowerCase()
-            );
-            return header?.value ?? "";
-        };
+//             const header = headers.find(
+//                 (h) => h.name?.toLowerCase() === name.toLowerCase()
+//             );
+//             return header?.value ?? "";
+//         };
 
-        const subject = getHeader("Subject");
-        const from = getHeader("From");
-        const dateStr = getHeader("Date");
+//         const subject = getHeader("Subject");
+//         const from = getHeader("From");
+//         const dateStr = getHeader("Date");
 
-        //skip emails with no useful data
-        if (!subject && !from) return null;
+//         //skip emails with no useful data
+//         if (!subject && !from) return null;
 
-        //parse timestamp
-        const receivedAt = dateStr
-           ? new Date(dateStr).toISOString()
-           : new Date().toISOString();
+//         //parse timestamp
+//         const receivedAt = dateStr
+//            ? new Date(dateStr).toISOString()
+//            : new Date().toISOString();
            
-        return {
-            gmail_message_id: messageId,
-            subject,
-            from,
-            received_at: receivedAt,
-        };
+//         return {
+//             gmail_message_id: messageId,
+//             subject,
+//             from,
+//             received_at: receivedAt,
+//             body,
+//         };
         
-    } catch (err) {
-        console.error(`failed to fetch email ${messageId}:`,err);
-        return null;
-    }
-}
+//     } catch (err) {
+//         console.error(`failed to fetch email ${messageId}:`,err);
+//         return null;
+//     }
+// }
 
 async function updateHistoryId(
 
@@ -295,6 +296,404 @@ export async function disconnectGmail(userId: string): Promise<void> {
             gmail_token: null,
             gmail_history_id: null,
             gmail_watch_expiry: null,
+            gmail_connected: false
         })
         .eq("id", userId);
+}
+
+/*
+|--------------------------------------------------------------------------
+| NEW FUNCTION: fetchEmailFull
+|--------------------------------------------------------------------------
+|
+| Fetches one complete email from Gmail.
+|
+| Unlike fetchEmailMetadata(), this function downloads much more information.
+|
+| It collects:
+| • Subject
+| • Sender
+| • Date received
+| • Plain-text email body
+|
+| The email scan worker uses this function so the AI classifier can read
+| enough of the email to decide whether it is a real job application.
+|
+| Example:
+|
+| Gmail
+|   ↓
+| "Thanks for applying to Software Engineer..."
+|   ↓
+| fetchEmailFull()
+|   ↓
+| {
+|   subject: "...",
+|   from: "...",
+|   body: "Thank you for applying..."
+| }
+|
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Downloads a complete Gmail message.
+ *
+ * @param gmail Authenticated Gmail client.
+ * @param messageId Gmail's unique ID for the email.
+ * @returns Email information, or null if the email could not be read.
+ */
+export async function fetchEmailFull(
+  gmail: ReturnType<typeof google.gmail>,
+  messageId: string
+): Promise<EmailMetadata | null> {
+  try {
+    /*
+    |--------------------------------------------------------------------------
+    | Ask Gmail for the complete email
+    |--------------------------------------------------------------------------
+    |
+    | format: "full" includes:
+    | • headers
+    | • body
+    | • attachments metadata
+    | • multipart sections
+    |
+    | This gives us much more information than "metadata".
+    |
+    |--------------------------------------------------------------------------
+    */
+    const { data: message } = await gmail.users.messages.get({
+      userId: "me",
+      id: messageId,
+      format: "full",
+    });
+
+    // Email headers (Subject, From, Date, etc.)
+    const headers = message.payload?.headers ?? [];
+
+    /**
+     * Finds a specific email header.
+     *
+     * Example:
+     * getHeader("Subject")
+     * getHeader("From")
+     * getHeader("Date")
+     */
+    const getHeader = (name: string): string => {
+      const header = headers.find(
+        (h) => h.name?.toLowerCase() === name.toLowerCase()
+      );
+
+      return header?.value ?? "";
+    };
+
+    // Read the important headers
+    const subject = getHeader("Subject");
+    const from = getHeader("From");
+    const dateStr = getHeader("Date");
+
+    // If both are missing, the email isn't useful
+    if (!subject && !from) return null;
+
+    /*
+    |--------------------------------------------------------------------------
+    | Convert the email date into ISO format
+    |--------------------------------------------------------------------------
+    |
+    | ISO dates are consistent and easy to store in the database.
+    |
+    | If Gmail doesn't provide a date, use the current time instead.
+    |
+    |--------------------------------------------------------------------------
+    */
+    const receivedAt = dateStr
+      ? new Date(dateStr).toISOString()
+      : new Date().toISOString();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Read the email body
+    |--------------------------------------------------------------------------
+    |
+    | Gmail stores the body in a nested structure.
+    | The helper function walks through that structure and returns
+    | readable plain text.
+    |
+    |--------------------------------------------------------------------------
+    */
+    const body = extractPlainTextBody(message.payload);
+
+    // Return everything the worker needs
+    return {
+      gmail_message_id: messageId,
+      subject,
+      from,
+      received_at: receivedAt,
+      body,
+    };
+
+  } catch (err) {
+    console.error(`[gmail] Failed to fetch full email ${messageId}:`, err);
+    return null;
+  }
+}
+
+/*
+|--------------------------------------------------------------------------
+| HELPER: extractPlainTextBody
+|--------------------------------------------------------------------------
+|
+| Finds readable text inside a Gmail email.
+|
+| Gmail emails can be surprisingly complicated.
+|
+| Some contain:
+| • Plain text
+| • HTML
+| • Nested multipart sections
+| • Attachments
+|
+| This helper searches through the email until it finds something
+| humans can read.
+|
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Extracts readable text from Gmail's nested email structure.
+ *
+ * @param payload Gmail message payload.
+ * @param depth Current recursion depth.
+ * @returns Plain text version of the email body.
+ */
+function extractPlainTextBody(
+  payload: any,
+  depth: number = 0
+): string {
+
+  /*
+  |--------------------------------------------------------------------------
+  | Safety check
+  |--------------------------------------------------------------------------
+  |
+  | Prevents infinite recursion if the email structure is malformed.
+  |
+  |--------------------------------------------------------------------------
+  */
+  if (!payload || depth > 5) return "";
+
+  /*
+  |--------------------------------------------------------------------------
+  | Case 1: Plain text email
+  |--------------------------------------------------------------------------
+  |
+  | The easiest case.
+  |
+  | Email
+  |   ↓
+  | text/plain
+  |   ↓
+  | Decode it and return.
+  |
+  |--------------------------------------------------------------------------
+  */
+  if (payload.mimeType === "text/plain" && payload.body?.data) {
+    return decodeBase64Body(payload.body.data);
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Case 2: Multipart email
+  |--------------------------------------------------------------------------
+  |
+  | Multipart emails contain several sections.
+  | Example:
+  |
+  | multipart
+  | ├── text/plain
+  | ├── text/html
+  | └── attachments
+  |
+  |--------------------------------------------------------------------------
+  */
+  if (payload.parts && Array.isArray(payload.parts)) {
+
+    /*
+    |--------------------------------------------------------------------------
+    | First choice: plain text
+    |--------------------------------------------------------------------------
+    |
+    | Plain text is easiest for AI to understand.
+    |
+    |--------------------------------------------------------------------------
+    */
+    const plainPart = payload.parts.find(
+      (p: any) => p.mimeType === "text/plain"
+    );
+
+    if (plainPart?.body?.data) {
+      return decodeBase64Body(plainPart.body.data);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Second choice: HTML
+    |--------------------------------------------------------------------------
+    |
+    | If plain text doesn't exist,
+    | remove the HTML tags.
+    |
+    |--------------------------------------------------------------------------
+    */
+    const htmlPart = payload.parts.find(
+      (p: any) => p.mimeType === "text/html"
+    );
+
+    if (htmlPart?.body?.data) {
+      const html = decodeBase64Body(htmlPart.body.data);
+      return stripHtmlTags(html);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Third choice: nested multipart sections
+    |--------------------------------------------------------------------------
+    |
+    | Some emails contain more multipart sections inside multipart sections.
+    |
+    | We search each one until we find readable text.
+    |
+    |--------------------------------------------------------------------------
+    */
+    for (const part of payload.parts) {
+      const result = extractPlainTextBody(part, depth + 1);
+
+      if (result) {
+        return result;
+      }
+    }
+  }
+
+  // Nothing useful found
+  return "";
+}
+
+/*
+|--------------------------------------------------------------------------
+| HELPER: decodeBase64Body
+|--------------------------------------------------------------------------
+|
+| Gmail stores email bodies using URL-safe Base64 encoding.
+|
+| Humans cannot read Base64 directly.
+|
+| This helper converts:
+|
+| SGVsbG8gd29ybGQ=
+|
+| into:
+|
+| Hello world
+|
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Converts Gmail's Base64 email body into readable text.
+ *
+ * @param encoded Encoded email body.
+ * @returns Decoded plain text.
+ */
+function decodeBase64Body(encoded: string): string {
+  try {
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gmail uses URL-safe Base64
+    |--------------------------------------------------------------------------
+    |
+    | Replace Gmail's special characters with normal Base64 characters.
+    |
+    |--------------------------------------------------------------------------
+    */
+    const standard = encoded
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+
+    // Decode into UTF-8 text
+    const decoded = Buffer
+      .from(standard, "base64")
+      .toString("utf-8");
+
+    /*
+    |--------------------------------------------------------------------------
+    | Keep only the first 3000 characters
+    |--------------------------------------------------------------------------
+    |
+    | This is usually more than enough for AI classification while
+    | keeping API costs low.
+    |
+    |--------------------------------------------------------------------------
+    */
+    return decoded.slice(0, 3000);
+
+  } catch {
+    // Invalid Base64
+    return "";
+  }
+}
+
+/*
+|--------------------------------------------------------------------------
+| HELPER: stripHtmlTags
+|--------------------------------------------------------------------------
+|
+| Converts HTML emails into readable plain text.
+|
+| Example:
+|
+| <p>Hello <strong>John</strong></p>
+|
+| becomes:
+|
+| Hello John
+|
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Removes HTML tags from an email.
+ *
+ * Also converts common HTML entities into normal characters.
+ *
+ * @param html HTML version of the email.
+ * @returns Clean plain text.
+ */
+function stripHtmlTags(html: string): string {
+  return html
+    // Convert line break tags into real new lines
+    .replace(/<br\s*\/?>/gi, "\n")
+
+    // End of paragraph becomes a new line
+    .replace(/<\/p>/gi, "\n")
+
+    // Remove every remaining HTML tag
+    .replace(/<[^>]+>/g, "")
+
+    // Decode common HTML entities
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+
+    // Prevent huge blocks of empty lines
+    .replace(/\n{3,}/g, "\n\n")
+
+    // Remove extra spaces around the text
+    .trim()
+
+    // Keep the text short enough for AI processing
+    .slice(0, 3000);
 }

@@ -16,8 +16,10 @@ what to do:
 import {Worker, Queue} from "bullmq";
 import { config } from "../core/config";
 import { db } from "../db/client";
-import { getNewEmails } from "../services/gmail.service";
+import { getNewEmails, fetchEmailFull } from "../services/gmail.service";
 import { classifyEmail } from "../services/email-parser.service";
+import { getGmailClientForUser } from "../services/auth.service";
+import { google } from "googleapis";
 
 
 /*
@@ -54,6 +56,9 @@ export const emailScanWorker = new Worker("email-scan", async (job) => {
 
     console.log(`[email-scan] processing job ${job.id} for user ${userId}`);
 
+    const { client } = await getGmailClientForUser(userId);
+    const gmail = google.gmail({ version: "v1", auth: client as any });
+
     //1.fetch new emails
     const newEmails = await getNewEmails(userId, historyId);
 
@@ -61,6 +66,10 @@ export const emailScanWorker = new Worker("email-scan", async (job) => {
         console.log(`[email-scan] no new emails for user ${userId}`);
         return;
     }
+
+    console.log(
+      `[email-scan] Found ${newEmails.length} new email(s) for user ${userId}`
+    );
 
     //2. process each email sequentially to isolate errors 
     for (const email of newEmails){
@@ -77,40 +86,55 @@ export const emailScanWorker = new Worker("email-scan", async (job) => {
             continue;
         }
 
-        //classify email using ai
-        const classification = await classifyEmail(email);
+        const fullEmail = await fetchEmailFull(gmail, email.gmail_message_id);
 
-        console.log(
-            `[email-scan] Email "${email.subject}" → ` +
-            `is_job_application: ${classification.is_job_application}, ` +
-            `confidence: ${classification.confidence}`
-        );
+        if (!fullEmail) {
+            console.warn(`[email-scan] Could not fetch full email ${email.gmail_message_id}`);
+            continue;
+        }
+
+        //classify email using ai
+        const classification = await classifyEmail(fullEmail);
+
+        console.log(`[email-scan] Classification result`, {
+            subject:            fullEmail.subject,
+            from:               fullEmail.from,
+            is_job_application: classification.is_job_application,
+            confidence:         classification.confidence,
+            company:            classification.company,
+            role:               classification.role,
+        });
 
         //filter non-job emails
         if (!classification.is_job_application) {
+            console.log(`[email-scan] Not a job application — skipping`);
             continue;
         }
 
         //filter low confidence results
         if (classification.confidence === "low"){
-            console.log(`[email-scan] low confidence for "${email.subject}" - skipping`);
+            console.log(`[email-scan] low confidence for "${email.subject}" - skipping` +
+            `Consider checking if this is a valid application email.`
+            );
             continue;
         }
+
+        //Save to database 
+        const company = classification.company ?? extractCompanyFromSender(fullEmail.from);
 
         //persist application
         const {error:insertError} = await db.from("applications").insert({
 
             user_id: userId,
-            company: classification.company ?? extractCompanyFromSender(email.from),
+            company,
             role: classification.role ?? "Unknown Role",
             status: "applied",
             source: "email_auto",
-            email_id: email.gmail_message_id,
-            applied_at: email.received_at,
+            email_id: fullEmail.gmail_message_id,
+            applied_at: fullEmail.received_at,
         });
 
         if (insertError) {
-            
             console.error(
                 `[email-scan] failed to insert applicationn for email ${email.gmail_message_id}: `,
                 insertError.message
@@ -118,7 +142,7 @@ export const emailScanWorker = new Worker("email-scan", async (job) => {
         }
         else {
             console.log(
-                `[email-scan] saved application: ${classification.company} - ${classification.role}`
+                `[email-scan]✅ saved application: ${classification.company} - ${classification.role}`
             );
         }
     }
