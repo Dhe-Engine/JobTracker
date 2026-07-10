@@ -12,6 +12,9 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import {config} from "./core/config";
+import { logger } from "./core/logger";
+import { registerErrorHandler } from "./core/error-handler";
+import { registerHealthRoutes } from "./core/health";
 
 //routes
 import { authRoutes } from "./routes/auth.routes";
@@ -27,6 +30,8 @@ import { accountRoutes }      from "./routes/account.routes";
 import { emailScanWorker } from "./workers/email-scan.worker";
 import { startDailySummaryCron } from "./workers/daily-summary.worker";
 import { startNotificationCron } from "./workers/notification.worker";
+import { startGmailWatchRenewalCron } from "./workers/gmail-watcher-renewal.worker";
+import { startCleanupCron } from "./workers/cleanup.worker";
 
 
 /* 
@@ -43,7 +48,9 @@ returns:
 */
 
 async function buildServer() {
-    const app = Fastify({logger:true});
+    const app = Fastify({
+        logger:false
+    });
 
     /*
     plugin 1: cross origin resource setup (cors)
@@ -62,7 +69,6 @@ async function buildServer() {
         credentials: true //required for the mtl to work
     });
 
-
     /*
     plugin 2: cookie setup
 
@@ -78,9 +84,14 @@ async function buildServer() {
     secret: config.jwt.secret,
    });
 
+    //error handling
+    registerErrorHandler(app);
 
-   /*
-   register all every route group related endpoints
+    //health check
+    await registerHealthRoutes(app);
+
+    /*
+    register all every route group related endpoints
 
     example: 
         - /google -> /api/auth/google
@@ -94,20 +105,6 @@ async function buildServer() {
    await app.register(historyRoutes,      { prefix: "/api/history" });
    await app.register(notificationRoutes, { prefix: "/api/notifications" });
    await app.register(accountRoutes,      { prefix: "/api/account" })
-
-    /*
-    system route: health check setup
-
-    function:
-    - used by hosting platform
-    - quick check if server is running and responsive
-
-    method: GET 
-    path: /health
-    */
-
-    app.get("/health", async () => ({status: "ok"}));
-
 
   return app //return configured server (not started yet)
 }
@@ -139,6 +136,8 @@ async function main() {
             host: "0.0.0.0",
         }
     );
+    logger.info("Server started", { port: config.port, env: config.env });
+
 
     /*
     background worker startup
@@ -150,6 +149,8 @@ async function main() {
         - processes Gmail notifications in the background
     */
     void emailScanWorker;
+    logger.info("✅ Email scan worker running");
+
 
     /* 
     background cron startup
@@ -160,19 +161,45 @@ async function main() {
         - generate daily summary and update streak and carryover automatically
     */
     startDailySummaryCron();
+    logger.info("✅ Daily summary cron running");
+
 
     //handle the notification process
     startNotificationCron();
+    logger.info("✅ Notification cron running");
 
-    console.log(`✅ Server running on port ${config.port}`);
-    console.log(`✅ Email scan worker running`);
-    console.log(`✅ Daily summary cron running`);
-    console.log(`✅ Notification cron running`);
+    startGmailWatchRenewalCron();
+    logger.info("✅ Gmail watch renewal cron running");
 
+    startCleanupCron();
+    logger.info("Cleanup cron running");
+
+    // Shut down the server gracefully
+    const shutdown = async (signal: string) => {
+        logger.info("Shutdown signal received", { signal });
+
+        await app.close();
+
+        logger.info("Server closed — goodbye");
+        process.exit(0);
+    }
+
+    // Listen for operating system shutdown signals
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
+
+    // console.log(`✅ Server running on port ${config.port}`);
+    // console.log(`✅ Email scan worker running`);
+    // console.log(`✅ Daily summary cron running`);
+    // console.log(`✅ Notification cron running`);
 }
 
-//handle startup errors
 main().catch((err) => {
-    console.error(err);
-    process.exit(1);
+  // Log startup errors before exiting
+  logger.error("Failed to start server", {
+    error: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
+
+  process.exit(1);
 });
