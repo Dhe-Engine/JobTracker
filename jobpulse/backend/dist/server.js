@@ -16,6 +16,9 @@ const fastify_1 = __importDefault(require("fastify"));
 const cookie_1 = __importDefault(require("@fastify/cookie"));
 const cors_1 = __importDefault(require("@fastify/cors"));
 const config_1 = require("./core/config");
+const logger_1 = require("./core/logger");
+const error_handler_1 = require("./core/error-handler");
+const health_1 = require("./core/health");
 //routes
 const auth_routes_1 = require("./routes/auth.routes");
 const goals_routes_1 = require("./routes/goals.routes");
@@ -29,6 +32,8 @@ const account_routes_1 = require("./routes/account.routes");
 const email_scan_worker_1 = require("./workers/email-scan.worker");
 const daily_summary_worker_1 = require("./workers/daily-summary.worker");
 const notification_worker_1 = require("./workers/notification.worker");
+const gmail_watcher_renewal_worker_1 = require("./workers/gmail-watcher-renewal.worker");
+const cleanup_worker_1 = require("./workers/cleanup.worker");
 /*
 buildServer is responsible for creating and configuring the fastify app
 
@@ -42,7 +47,9 @@ returns:
     - configured fastify app
 */
 async function buildServer() {
-    const app = (0, fastify_1.default)({ logger: true });
+    const app = (0, fastify_1.default)({
+        logger: false
+    });
     /*
     plugin 1: cross origin resource setup (cors)
 
@@ -71,12 +78,16 @@ async function buildServer() {
     await app.register(cookie_1.default, {
         secret: config_1.config.jwt.secret,
     });
+    //error handling
+    (0, error_handler_1.registerErrorHandler)(app);
+    //health check
+    await (0, health_1.registerHealthRoutes)(app);
     /*
     register all every route group related endpoints
- 
-     example:
-         - /google -> /api/auth/google
-     */
+
+    example:
+        - /google -> /api/auth/google
+    */
     await app.register(auth_routes_1.authRoutes, { prefix: "/api/auth", });
     await app.register(goals_routes_1.goalRoutes, { prefix: "/api/goals" });
     await app.register(gmail_routes_1.gmailRoutes, { prefix: "/api/gmail" });
@@ -85,17 +96,6 @@ async function buildServer() {
     await app.register(history_routes_1.historyRoutes, { prefix: "/api/history" });
     await app.register(notifications_routes_1.notificationRoutes, { prefix: "/api/notifications" });
     await app.register(account_routes_1.accountRoutes, { prefix: "/api/account" });
-    /*
-    system route: health check setup
-
-    function:
-    - used by hosting platform
-    - quick check if server is running and responsive
-
-    method: GET
-    path: /health
-    */
-    app.get("/health", async () => ({ status: "ok" }));
     return app; //return configured server (not started yet)
 }
 /*
@@ -120,6 +120,7 @@ async function main() {
         port: config_1.config.port,
         host: "0.0.0.0",
     });
+    logger_1.logger.info("Server started", { port: config_1.config.port, env: config_1.config.env });
     /*
     background worker startup
 
@@ -130,6 +131,7 @@ async function main() {
         - processes Gmail notifications in the background
     */
     void email_scan_worker_1.emailScanWorker;
+    logger_1.logger.info("✅ Email scan worker running");
     /*
     background cron startup
 
@@ -139,15 +141,34 @@ async function main() {
         - generate daily summary and update streak and carryover automatically
     */
     (0, daily_summary_worker_1.startDailySummaryCron)();
+    logger_1.logger.info("✅ Daily summary cron running");
     //handle the notification process
     (0, notification_worker_1.startNotificationCron)();
-    console.log(`✅ Server running on port ${config_1.config.port}`);
-    console.log(`✅ Email scan worker running`);
-    console.log(`✅ Daily summary cron running`);
-    console.log(`✅ Notification cron running`);
+    logger_1.logger.info("✅ Notification cron running");
+    (0, gmail_watcher_renewal_worker_1.startGmailWatchRenewalCron)();
+    logger_1.logger.info("✅ Gmail watch renewal cron running");
+    (0, cleanup_worker_1.startCleanupCron)();
+    logger_1.logger.info("Cleanup cron running");
+    // Shut down the server gracefully
+    const shutdown = async (signal) => {
+        logger_1.logger.info("Shutdown signal received", { signal });
+        await app.close();
+        logger_1.logger.info("Server closed — goodbye");
+        process.exit(0);
+    };
+    // Listen for operating system shutdown signals
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
+    // console.log(`✅ Server running on port ${config.port}`);
+    // console.log(`✅ Email scan worker running`);
+    // console.log(`✅ Daily summary cron running`);
+    // console.log(`✅ Notification cron running`);
 }
-//handle startup errors
 main().catch((err) => {
-    console.error(err);
+    // Log startup errors before exiting
+    logger_1.logger.error("Failed to start server", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+    });
     process.exit(1);
 });

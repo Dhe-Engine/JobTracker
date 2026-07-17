@@ -20,6 +20,8 @@ const config_1 = require("../core/config");
 const client_1 = require("../db/client");
 const gmail_service_1 = require("../services/gmail.service");
 const email_parser_service_1 = require("../services/email-parser.service");
+const auth_service_1 = require("../services/auth.service");
+const googleapis_1 = require("googleapis");
 /*
 queue setup
 
@@ -46,12 +48,15 @@ exports.emailScanWorker = new bullmq_1.Worker("email-scan", async (job) => {
     //this object process jobs from email scan queue object
     const { userId, historyId } = job.data;
     console.log(`[email-scan] processing job ${job.id} for user ${userId}`);
+    const { client } = await (0, auth_service_1.getGmailClientForUser)(userId);
+    const gmail = googleapis_1.google.gmail({ version: "v1", auth: client });
     //1.fetch new emails
     const newEmails = await (0, gmail_service_1.getNewEmails)(userId, historyId);
     if (newEmails.length === 0) {
         console.log(`[email-scan] no new emails for user ${userId}`);
         return;
     }
+    console.log(`[email-scan] Found ${newEmails.length} new email(s) for user ${userId}`);
     //2. process each email sequentially to isolate errors 
     for (const email of newEmails) {
         //check for duplicate
@@ -64,35 +69,49 @@ exports.emailScanWorker = new bullmq_1.Worker("email-scan", async (job) => {
             console.log(`[email-scan] skipping duplicate email ${email.gmail_message_id}`);
             continue;
         }
+        const fullEmail = await (0, gmail_service_1.fetchEmailFull)(gmail, email.gmail_message_id);
+        if (!fullEmail) {
+            console.warn(`[email-scan] Could not fetch full email ${email.gmail_message_id}`);
+            continue;
+        }
         //classify email using ai
-        const classification = await (0, email_parser_service_1.classifyEmail)(email);
-        console.log(`[email-scan] Email "${email.subject}" → ` +
-            `is_job_application: ${classification.is_job_application}, ` +
-            `confidence: ${classification.confidence}`);
+        const classification = await (0, email_parser_service_1.classifyEmail)(fullEmail);
+        console.log(`[email-scan] Classification result`, {
+            subject: fullEmail.subject,
+            from: fullEmail.from,
+            is_job_application: classification.is_job_application,
+            confidence: classification.confidence,
+            company: classification.company,
+            role: classification.role,
+        });
         //filter non-job emails
         if (!classification.is_job_application) {
+            console.log(`[email-scan] Not a job application — skipping`);
             continue;
         }
         //filter low confidence results
         if (classification.confidence === "low") {
-            console.log(`[email-scan] low confidence for "${email.subject}" - skipping`);
+            console.log(`[email-scan] low confidence for "${email.subject}" - skipping` +
+                `Consider checking if this is a valid application email.`);
             continue;
         }
+        //Save to database 
+        const company = classification.company ?? extractCompanyFromSender(fullEmail.from);
         //persist application
         const { error: insertError } = await client_1.db.from("applications").insert({
             user_id: userId,
-            company: classification.company ?? extractCompanyFromSender(email.from),
+            company,
             role: classification.role ?? "Unknown Role",
             status: "applied",
             source: "email_auto",
-            email_id: email.gmail_message_id,
-            applied_at: email.received_at,
+            email_id: fullEmail.gmail_message_id,
+            applied_at: fullEmail.received_at,
         });
         if (insertError) {
             console.error(`[email-scan] failed to insert applicationn for email ${email.gmail_message_id}: `, insertError.message);
         }
         else {
-            console.log(`[email-scan] saved application: ${classification.company} - ${classification.role}`);
+            console.log(`[email-scan]✅ saved application: ${classification.company} - ${classification.role}`);
         }
     }
 }, 

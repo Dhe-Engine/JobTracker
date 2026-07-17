@@ -12,31 +12,39 @@ import { db } from "../db/client";
 import { config } from "../core/config";
 import { getTodayProgress, computeEffectiveTarget } from "../services/goal.services";
 import { sendToUser, logNotificationSent } from "../notifications/fcm.service";
-import { 
-    composeNotification, getWindowForHour, getWindowFrequencyMinutes, getWindowThreshold 
+import {
+    composeNotification, getWindowForHour, getWindowFrequencyMinutes, getWindowThreshold
 } from "../notifications/message-composer";
 import { getCurrentHourInTimeZone } from "../utils/timezone";
+import { logger } from "../core/logger";
 
 
 //start notification cron job
 export function startNotificationCron(): void {
 
-    cron.schedule(config.rules.notificationCronSchedule, async() => {
-        try{
+    cron.schedule(config.rules.notificationCronSchedule, async () => {
+        try {
             await processAllUsers();
         }
         catch (err) {
-            console.error("[notifications] cron run failed:", err);
+            // console.error("[notifications] cron run failed:", err);
+            logger.error("Notification cron run failed", {
+                error: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     });
 
-    console.log("[notifications] cron started - running every 15 mins")
+    // console.log("[notifications] cron started - running every 15 mins")
+    logger.info("Notification cron started", {
+        schedule: config.rules.notificationCronSchedule,
+    });
 }
 
 
 //process notification for all users
 async function processAllUsers(): Promise<void> {
-    const {data: users, error} = await db
+    const { data: users, error } = await db
         .from("users")
         .select(`
             id,
@@ -47,16 +55,19 @@ async function processAllUsers(): Promise<void> {
         .eq("notifications_enabled", true)
         .not("fcm_tokens", "is", null);
 
-    if(error || !users || users.length === 0) return;
+    if (error || !users || users.length === 0) return;
 
     const eligbleUsers = users.filter(
         (u) => Array.isArray(u.fcm_tokens) && u.fcm_tokens.length > 0
     );
 
-    console.log(`[notifications] processing ${eligbleUsers.length} eligible user(s)`);
+    // console.log(`[notifications] processing ${eligbleUsers.length} eligible user(s)`);
+    logger.info("Processing notification batch", {
+        eligibleUserCount: eligbleUsers.length,
+    });
 
     const results = await Promise.allSettled(
-        eligbleUsers.map((user) => 
+        eligbleUsers.map((user) =>
             processUserNotification(user.id, user.timezone)
         )
     );
@@ -64,10 +75,23 @@ async function processAllUsers(): Promise<void> {
     results.forEach((result, i) => {
 
         if (result.status === "rejected") {
-            console.error(
-                `[notifications] failed for user ${eligbleUsers[i].id}:`,
-                result.reason
-            );
+            // console.error(
+            //     `[notifications] failed for user ${eligbleUsers[i].id}:`,
+            //     result.reason
+            // );
+
+            logger.error("Failed to process user notifications", {
+                userId: eligbleUsers[i].id,
+                error:
+                    result.reason instanceof Error
+                        ? result.reason.message
+                        : String(result.reason),
+                stack:
+                    result.reason instanceof Error
+                        ? result.reason.stack
+                        : undefined,
+            });
+
         }
     });
 }
@@ -80,15 +104,15 @@ async function processUserNotification(
 
     const goalSummary = await computeEffectiveTarget(userId);
 
-    if(!goalSummary || goalSummary.effective_target === 0) {
+    if (!goalSummary || goalSummary.effective_target === 0) {
         return;
     }
 
-    const {effective_target} = goalSummary;
+    const { effective_target } = goalSummary;
 
     const appliedToday = await getTodayProgress(userId);
 
-    if(appliedToday >= effective_target) {
+    if (appliedToday >= effective_target) {
         return;
     }
 
@@ -105,10 +129,10 @@ async function processUserNotification(
 
     const threshold = getWindowThreshold(window);
 
-    if(threshold !== null){
-        const progressFraction = effective_target > 0 ? appliedToday / effective_target: 0;
+    if (threshold !== null) {
+        const progressFraction = effective_target > 0 ? appliedToday / effective_target : 0;
 
-        if (progressFraction >= threshold){
+        if (progressFraction >= threshold) {
             return;
         }
     }
@@ -123,31 +147,41 @@ async function processUserNotification(
             hoursRemaining,
         }
     );
-    
+
     const sent = await sendToUser(userId, message);
 
-    if(sent) {
+    if (sent) {
         await logNotificationSent(userId, window, message.body);
 
-        console.log(
-            `[notifications] sent ${window} notification to user ${userId}:` +
-            `"${message.title}" | ${appliedToday}/${effective_target} applied`
-        );
+        // console.log(
+        //     `[notifications] sent ${window} notification to user ${userId}:` +
+        //     `"${message.title}" | ${appliedToday}/${effective_target} applied`
+        // );
+
+        logger.info("Notification sent", {
+            userId,
+            window,
+            title: message.title,
+            appliedToday,
+            effectiveTarget: effective_target,
+            hoursRemaining,
+        });
+
     }
 }
 
 
 //check recent notification
 async function checkRecentNotification(
-    userId:string,
+    userId: string,
     window: "night" | "morning" | "afternoon" | "evening",
     timezone: string
 ): Promise<boolean> {
-    
+
     const frequencyMinutes = getWindowFrequencyMinutes(window);
 
     const cutoffTime = new Date(
-        Date.now() - frequencyMinutes * 60 *1000).toISOString();
+        Date.now() - frequencyMinutes * 60 * 1000).toISOString();
 
     const today = new Intl.DateTimeFormat("sv-SE", {
         timeZone: timezone,
@@ -158,16 +192,16 @@ async function checkRecentNotification(
 
     const query = db
         .from("notifications_log")
-        .select("id", {count: "exact", head: true})
+        .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("window_period", window)
         .gte("sent_at", cutoffTime);
 
-    if(window === "night"){
+    if (window === "night") {
         query.gte("sent_at", `${today}T00:00:00+00:00`);
     }
 
-    const {count} = await query;
+    const { count } = await query;
 
     return (count ?? 0) > 0;
 

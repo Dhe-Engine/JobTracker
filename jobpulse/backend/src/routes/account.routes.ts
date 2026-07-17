@@ -15,6 +15,7 @@ import { disconnectGmail } from "../services/gmail.service";
 import { OAuth2Client } from "google-auth-library";
 import { config } from "../core/config";
 import { decryptToken } from "../services/auth.service";
+import { logger } from "../core/logger";
 
 
 export async function accountRoutes(app: FastifyInstance) {
@@ -34,8 +35,12 @@ export async function accountRoutes(app: FastifyInstance) {
             try{
                 await disconnectGmail(userId);
             }
-            catch (err){
-                console.warn(`[account] gmail disconnect failed for ${userId}`, err);
+            catch (err) {
+                // console.warn(`[account] gmail disconnect failed for ${userId}`, err);
+                logger.warn("Gmail disconnect failed during account deletion", {
+                    userId,
+                    error: err,
+                });
             }
 
             //revoke google oauth token
@@ -63,8 +68,12 @@ export async function accountRoutes(app: FastifyInstance) {
                    }
                 }
             }
-            catch (err){
-                console.warn(`[account] Token revocation failed for ${userId}`, err)
+            catch (err) {
+                // console.warn(`[account] Token revocation failed for ${userId}`, err)
+                logger.warn("Google OAuth token revocation failed during account deletion", {
+                    userId,
+                    error: err,
+                });
             }
 
             //delete user from database

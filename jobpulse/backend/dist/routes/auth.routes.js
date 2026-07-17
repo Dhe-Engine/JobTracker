@@ -6,6 +6,7 @@ const middleware_1 = require("../core/middleware");
 const client_1 = require("../db/client");
 const config_1 = require("../core/config");
 const gmail_service_1 = require("../services/gmail.service");
+const logger_1 = require("../core/logger");
 /*
 authroutes is a route registration function
 
@@ -83,19 +84,33 @@ async function authRoutes(app) {
                     .from("users")
                     .update({ gmail_connected: true })
                     .eq("id", user.id);
-                console.log(`[auth] Gmail watch set up for user ${user.id}`);
+                // console.log(`[auth] Gmail watch set up for user ${user.id}`);
+                logger_1.logger.info("Gmail watch set up after login", {
+                    userId: user.id,
+                });
             })
                 .catch((err) => {
                 // Log but don't fail the login — user can connect manually from settings
-                console.warn(`[auth] Gmail watch setup failed for user ${user.id} — ` +
-                    `user can connect manually from Settings:`, err?.message ?? err);
+                // console.warn(
+                //     `[auth] Gmail watch setup failed for user ${user.id} — ` +
+                //     `user can connect manually from Settings:`,
+                //     err?.message ?? err
+                // );
+                logger_1.logger.warn("Gmail watch setup failed after login", {
+                    userId: user.id,
+                    error: err?.message ?? err,
+                    canReconnectFromSettings: true,
+                });
             });
             //step 6: redirect user to dashboard after login
             return reply.redirect(`${config_1.config.frontend.url}/dashboard`);
         }
         catch (err) {
             //log error and redirect user to frontend with failure state
-            console.error("OAuth callback error:", err);
+            // console.error("OAuth callback error:", err);
+            logger_1.logger.error("OAuth callback failed", {
+                error: err,
+            });
             return reply.redirect(`${config_1.config.frontend.url}/?error=auth_failed`);
         }
     });

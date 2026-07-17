@@ -7,8 +7,7 @@ import * as admin from "firebase-admin";
 import { config } from "../core/config";
 import { db } from "../db/client";
 import type { NotificationMessage } from "./message-composer";
-import { fa } from "zod/locales";
-
+import { logger } from "../core/logger";
 
 //initialize firebase admin
 if (!admin.apps.length) {
@@ -68,13 +67,23 @@ export async function sendPushNotification(
             errorCode === "messaging/registration-token-not-registered" ||
             errorCode === "messaging/invalid-argument";
 
-        if(isInvalidToken) {
-            console.warn(`[fcm] Invalid token — will be removed: ${fcmToken.slice(0, 20)}...`);
+        if (isInvalidToken) {
+            // console.warn(`[fcm] Invalid token — will be removed: ${fcmToken.slice(0, 20)}...`);
+
+            logger.warn("[fcm] Invalid token — will be removed", {
+                tokenPrefix: `${fcmToken.slice(0, 20)}...`,
+            });
+
             return {success: false, shouldRemoveToken: true};
         }
 
-        console.error("[fcm] Send error:", errorCode, err);
-        return {success: false, shouldRemoveToken: false};
+        // console.error("[fcm] Send error:", errorCode, err);
+
+        logger.error("[fcm] Send error:", {
+            errorCode,
+            error: err,
+        });
+        return { success: false, shouldRemoveToken: false };
     }
 }
 
@@ -90,7 +99,11 @@ export async function sendToUser(
         .eq("user_id", userId);
 
     if (!tokens || tokens.length === 0) {
-        console.log(`[fcm] no tokens for user ${userId}`);
+        // console.log(`[fcm] no tokens for user ${userId}`);
+
+        logger.info("No FCM tokens found for user", {
+            userId,
+        });
         return false;
     }
 
@@ -115,8 +128,13 @@ export async function sendToUser(
             .delete()
             .in("id", staleTokenIds);
 
-        console.log(
-            `[fcm] removed ${staleTokenIds.length} stale token(s) for user ${userId}`);
+        // console.log(
+        //     `[fcm] removed ${staleTokenIds.length} stale token(s) for user ${userId}`);
+        
+        logger.info("Removed stale FCM tokens", {
+            userId,
+            removedTokenCount: staleTokenIds.length,
+        });
     }
 
     return atLeastOneSent;

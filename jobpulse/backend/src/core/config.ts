@@ -1,5 +1,6 @@
   import dotenv from "dotenv";
   import path from "path";
+  import { logger } from "./logger";
 
   // Load .env before anything reads process.env
   // path.resolve ensures it finds the file regardless of where the server is started from
@@ -8,10 +9,18 @@
   });
 
   //temporary debugging (remove after confirming it works)
-  console.log("Current working directory:", process.cwd());
-  console.log(
+  logger.debug(
+    "Current working directory:",
+    {
+      cwd: process.cwd()
+    }
+  );
+
+  logger.debug(
     "GOOGLE_CLIENT_ID loaded:",
-    !!process.env.GOOGLE_CLIENT_ID
+    {
+      googleClientIdLoaded: !!process.env.GOOGLE_CLIENT_ID,
+    }
   );
 
   import { z } from "zod";
@@ -66,7 +75,12 @@
       }
   );
 
-  console.log("REDIS_URL =", process.env.REDIS_URL);
+  // console.log("REDIS_URL =", process.env.REDIS_URL);
+
+  logger.debug("REDIS_URL =",
+  {
+    redisUrl: process.env.REDIS_URL,
+  });
 
   /*
   parse and validate environment variables
@@ -92,8 +106,14 @@
       }
 
       return parsed;
-    } catch (err) {
-      console.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", err);
+    }
+    catch (err) {
+      // console.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", err);
+
+      logger.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+
       throw new Error("Invalid FCM configuration");
     }
   }

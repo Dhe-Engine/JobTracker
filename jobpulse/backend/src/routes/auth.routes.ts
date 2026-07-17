@@ -4,6 +4,7 @@ import { requireAuth } from "../core/middleware";
 import { db } from "../db/client";
 import { config } from "../core/config";
 import { setupGmailWatch } from "../services/gmail.service";
+import { logger } from "../core/logger";
 
 
 /*
@@ -95,15 +96,23 @@ export async function authRoutes(app: FastifyInstance) {
                             .from("users")
                             .update({ gmail_connected: true })
                             .eq("id", user.id);
-                        console.log(`[auth] Gmail watch set up for user ${user.id}`);
+                        // console.log(`[auth] Gmail watch set up for user ${user.id}`);
+                        logger.info("Gmail watch set up after login", {
+                            userId: user.id,
+                        });
                     })
                     .catch((err) => {
                         // Log but don't fail the login — user can connect manually from settings
-                        console.warn(
-                            `[auth] Gmail watch setup failed for user ${user.id} — ` +
-                            `user can connect manually from Settings:`,
-                            err?.message ?? err
-                        );
+                        // console.warn(
+                        //     `[auth] Gmail watch setup failed for user ${user.id} — ` +
+                        //     `user can connect manually from Settings:`,
+                        //     err?.message ?? err
+                        // );
+                        logger.warn("Gmail watch setup failed after login", {
+                            userId: user.id,
+                            error: err?.message ?? err,
+                            canReconnectFromSettings: true,
+                        });
                     });
 
                 //step 6: redirect user to dashboard after login
@@ -112,7 +121,10 @@ export async function authRoutes(app: FastifyInstance) {
 
             catch (err){
                 //log error and redirect user to frontend with failure state
-                console.error("OAuth callback error:", err);
+                // console.error("OAuth callback error:", err);
+                logger.error("OAuth callback failed", {
+                    error: err,
+                });
                 return reply.redirect(`${config.frontend.url}/?error=auth_failed`);
             }
         }

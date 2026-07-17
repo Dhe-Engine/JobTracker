@@ -6,198 +6,217 @@ what this service does:
     - disconnect gmail and clean user data
 */
 
-import {google} from "googleapis";
+import { google } from "googleapis";
 import { db } from "../db/client";
 import { getGmailClientForUser } from "./auth.service";
 import type { EmailMetadata } from "../models/application.model";
 import { config } from "../core/config";
+import { logger } from "../core/logger";
 
 
 export async function setupGmailWatch(userId: string): Promise<void> {
-    console.log(`[gmail] Setting up watch for user ${userId}`);
+  // console.log(`[gmail] Setting up watch for user ${userId}`);
+  logger.info("Setting up Gmail watch for user", {
+    userId,
+  });
 
-    /*
-    setup gmail notifications
+  /*
+  setup gmail notifications
 
-    purpose:
-        - get oauth gmail client
-        - register watch with gmail
-        - gmail notifications to sub topic when new emails arrive
-        - store bookmark and expiration timestamp
-    */
+  purpose:
+      - get oauth gmail client
+      - register watch with gmail
+      - gmail notifications to sub topic when new emails arrive
+      - store bookmark and expiration timestamp
+  */
 
-    //get oauth gmail client
-    const { client } = await getGmailClientForUser(userId);
-    const gmail = google.gmail({version: "v1", auth: client as any});
-    
+  //get oauth gmail client
+  const { client } = await getGmailClientForUser(userId);
+  const gmail = google.gmail({ version: "v1", auth: client as any });
 
-    //define sub topic
-    const topicName = config.google.pubsubTopic;
 
-    console.log(`[gmail] Using Pub/Sub topic: ${topicName}`);
+  //define sub topic
+  const topicName = config.google.pubsubTopic;
 
-    //register gmail watch
-    let data;
+  // console.log(`[gmail] Using Pub/Sub topic: ${topicName}`);
+  logger.debug("Using Gmail Pub/Sub topic", {
+    userId,
+    topicName,
+  });
 
-    try {
-        const response = await gmail.users.watch({
-            userId: "me",
-            requestBody: {
-                topicName,
-                labelIds: ["INBOX"],
-            },
-        });
-        data = response.data;
-    } catch (err: any) {
-        // Log the full error so Railway shows exactly what Gmail rejected
-        console.error(`[gmail] gmail.users.watch() failed:`, {
-            message: err?.message,
-            code: err?.code,
-            status: err?.status,
-            errors: err?.errors,
-        });
-        throw err;
-    }
+  //register gmail watch
+  let data;
 
-    const expiry = data.expiration != null ? Number(data.expiration) : null;
-
-    if (expiry != null && Number.isNaN(expiry)) {
-        throw new Error("Invalid gmail expiration value returned from watch");
-    }
-
-    await db
-        .from("users")
-        .update({
-            gmail_history_id: data.historyId ?? null,
-            gmail_watch_expiry: expiry,
-        })
-        .eq("id", userId);
-
-    console.log(`[gmail] Watch set up successfully`, {
-        userId,
-        historyId: data.historyId,
-        expiresAt: expiry ? new Date(expiry).toISOString() : null,
+  try {
+    const response = await gmail.users.watch({
+      userId: "me",
+      requestBody: {
+        topicName,
+        labelIds: ["INBOX"],
+      },
     });
-}    
+    data = response.data;
+  }
+  catch (err: any) {
+    // Log the full error so Railway shows exactly what Gmail rejected
+    logger.error("Failed to register Gmail watch", {
+      userId,
+      message: err?.message,
+      code: err?.code,
+      status: err?.status,
+      errors: err?.errors,
+    });
+    throw err;
+  }
+
+  const expiry = data.expiration != null ? Number(data.expiration) : null;
+
+  if (expiry != null && Number.isNaN(expiry)) {
+    throw new Error("Invalid gmail expiration value returned from watch");
+  }
+
+  await db
+    .from("users")
+    .update({
+      gmail_history_id: data.historyId ?? null,
+      gmail_watch_expiry: expiry,
+    })
+    .eq("id", userId);
+
+  // console.log(`[gmail] Watch set up successfully`, {
+  //   userId,
+  //   historyId: data.historyId,
+  //   expiresAt: expiry ? new Date(expiry).toISOString() : null,
+  // });
+  logger.info("Gmail watch registered", {
+    userId,
+    historyId: data.historyId,
+    expiresAt: expiry ? new Date(expiry).toISOString() : null,
+  });
+}
 
 
 export async function getNewEmails(
-    userId: string,
-    historyId: string
+  userId: string,
+  historyId: string
 ): Promise<EmailMetadata[]> {
 
-    /*
-    retrieve new emails since the last processed state
+  /*
+  retrieve new emails since the last processed state
 
-    returns:
-        - arrays of subject, sender, timestamp
-    */
+  returns:
+      - arrays of subject, sender, timestamp
+  */
 
-    //get gmail client
-    const {client} = await getGmailClientForUser(userId);
-    const gmail = google.gmail({version: "v1", auth: client as any});
+  //get gmail client
+  const { client } = await getGmailClientForUser(userId);
+  const gmail = google.gmail({ version: "v1", auth: client as any });
 
-    //get stored historyId
-    const {data: user} = await db
-        .from("users")
-        .select("gmail_history_id")
-        .eq("id", userId)
-        .single();
+  //get stored historyId
+  const { data: user } = await db
+    .from("users")
+    .select("gmail_history_id")
+    .eq("id", userId)
+    .single();
 
-    const startHistoryId = user?.gmail_history_id ?? historyId;
+  const startHistoryId = user?.gmail_history_id ?? historyId;
 
-    if (!startHistoryId) {
-        throw new Error("missing historyId for gmail sync");
+  if (!startHistoryId) {
+    throw new Error("missing historyId for gmail sync");
+  }
+
+  //retrieve history of changes
+  let historyData;
+
+  try {
+    const res = await gmail.users.history.list({
+      userId: "me",
+      startHistoryId,
+      historyTypes: ["messageAdded"],
+      labelId: "INBOX",
+    });
+
+    historyData = res.data;
+  }
+  catch (err: any) {
+    if (err?.code === 404) {
+      // console.warn(
+      //   `[gmail] historyId expired for user ${userId}, resetting watch`
+      // );
+      logger.warn("Gmail historyId expired, resetting watch", {
+        userId,
+        historyId: startHistoryId,
+      });
+
+      // reset watch instead of failing worker
+      await setupGmailWatch(userId);
+      return [];
     }
 
-    //retrieve history of changes
-    let historyData;
-    
-    try {
-        const res = await gmail.users.history.list({
-            userId: "me",
-            startHistoryId,
-            historyTypes: ["messageAdded"],
-            labelId: "INBOX",
-        }); 
+    throw err;
+  }
 
-        historyData = res.data;
+  const history = historyData.history ?? [];
+
+  //extract message ids
+  const newMessageIds: string[] = [];
+
+  for (const record of history) {
+    for (const msg of record.messagesAdded ?? []) {
+      if (msg.message?.id) {
+        newMessageIds.push(msg.message.id);
+      }
     }
-    catch(err: any) {
-        if (err?.code === 404) {
-            console.warn(
-                `[gmail] historyId expired for user ${userId}, resetting watch`
-            );
+  }
 
-            // reset watch instead of failing worker
-            await setupGmailWatch(userId);
-            return [];
-        }
+  const uniqueMessageIds = [...new Set(newMessageIds)];
 
-        throw err;
-    }
-
-    const history = historyData.history ?? [];
-
-    //extract message ids
-    const newMessageIds: string[] = [];
-
-    for (const record of history){
-        for(const msg of record.messagesAdded ?? []){
-            if (msg.message?.id) {
-                newMessageIds.push(msg.message.id);
-            }
-        }
-    }
-
-    const uniqueMessageIds = [...new Set(newMessageIds)];
-
-    //handle no new emails
-    if (uniqueMessageIds.length === 0) {
-
-        //safe history id fallback
-        const nextHistoryId = 
-            historyData.historyId ?? 
-            user?.gmail_history_id ??
-            historyId;
-
-        await updateHistoryId(userId, nextHistoryId);
-        return [];
-    }
-
-    //fetch metadata in parallel
-    const BATCH_SIZE = 5;
-    const emailResults: (EmailMetadata | null)[] = [];
-
-    for (let i = 0; i < uniqueMessageIds.length; i += BATCH_SIZE) {
-        const batch = uniqueMessageIds.slice(i, i + BATCH_SIZE);
-
-        const results = await Promise.all(
-            batch.map((msgId) => fetchEmailFull(gmail, msgId))
-        );
-
-        emailResults.push(...results);
-    }
-
-    //filter valid results
-    const validEmails = emailResults.filter(
-        (e): e is EmailMetadata => e !== null
-    );
+  //handle no new emails
+  if (uniqueMessageIds.length === 0) {
 
     //safe history id fallback
-    const nextHistoryId = historyData.historyId ?? historyId;
+    const nextHistoryId =
+      historyData.historyId ??
+      user?.gmail_history_id ??
+      historyId;
 
-    //update bookmark
     await updateHistoryId(userId, nextHistoryId);
+    return [];
+  }
 
-    return validEmails;
+  //fetch metadata in parallel
+  const BATCH_SIZE = 5;
+  const emailResults: (EmailMetadata | null)[] = [];
+
+  for (let i = 0; i < uniqueMessageIds.length; i += BATCH_SIZE) {
+    const batch = uniqueMessageIds.slice(i, i + BATCH_SIZE);
+
+    const results = await Promise.all(
+      batch.map((msgId) => fetchEmailFull(gmail, msgId))
+    );
+
+    emailResults.push(...results);
+  }
+
+  //filter valid results
+  const validEmails = emailResults.filter(
+    (e): e is EmailMetadata => e !== null
+  );
+
+  //safe history id fallback
+  const nextHistoryId = historyData.historyId ?? historyId;
+
+  //update bookmark
+  await updateHistoryId(userId, nextHistoryId);
+
+  return validEmails;
 }
 
 // async function fetchEmailMetadata(
 //     gmail:ReturnType<typeof google.gmail>,
 //     messageId: string
 // ): Promise<EmailMetadata | null> {
-    
+
 //     /*
 //     fetch the metadata for a single email
 
@@ -238,7 +257,7 @@ export async function getNewEmails(
 //         const receivedAt = dateStr
 //            ? new Date(dateStr).toISOString()
 //            : new Date().toISOString();
-           
+
 //         return {
 //             gmail_message_id: messageId,
 //             subject,
@@ -246,7 +265,7 @@ export async function getNewEmails(
 //             received_at: receivedAt,
 //             body,
 //         };
-        
+
 //     } catch (err) {
 //         console.error(`failed to fetch email ${messageId}:`,err);
 //         return null;
@@ -255,50 +274,54 @@ export async function getNewEmails(
 
 async function updateHistoryId(
 
-    //updates the stored bookmark
+  //updates the stored bookmark
 
-    userId: string,
-    historyId: string
+  userId: string,
+  historyId: string
 ): Promise<void> {
 
-    await db
-        .from("users")
-        .update({gmail_history_id: historyId})
-        .eq("id", userId);
+  await db
+    .from("users")
+    .update({ gmail_history_id: historyId })
+    .eq("id", userId);
 }
 
 export async function disconnectGmail(userId: string): Promise<void> {
 
-    /*
-     disconnect user's gmail account
+  /*
+   disconnect user's gmail account
 
-     what it does:
-        - stop gmail notifications
-        - clear stored tokens and sync state
-    */
+   what it does:
+      - stop gmail notifications
+      - clear stored tokens and sync state
+  */
 
-    try {
-        
-        const {client} = await getGmailClientForUser(userId);
-        const gmail = google.gmail({version: "v1", auth:client as any});
+  try {
 
-        //stop notifications
-        await gmail.users.stop({userId: "me"});
+    const { client } = await getGmailClientForUser(userId);
+    const gmail = google.gmail({ version: "v1", auth: client as any });
 
-    } catch {
-        console.warn(`could not stop gmail watch for user ${userId} - continuing`);
-    }
+    //stop notifications
+    await gmail.users.stop({ userId: "me" });
 
-    //clear stored credentials and sync state
-    await db
-        .from("users")
-        .update({
-            gmail_token: null,
-            gmail_history_id: null,
-            gmail_watch_expiry: null,
-            gmail_connected: false
-        })
-        .eq("id", userId);
+  }
+  catch (err) {
+    logger.warn("Failed to stop Gmail watch during disconnect", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  //clear stored credentials and sync state
+  await db
+    .from("users")
+    .update({
+      gmail_token: null,
+      gmail_history_id: null,
+      gmail_watch_expiry: null,
+      gmail_connected: false
+    })
+    .eq("id", userId);
 }
 
 /*
@@ -434,7 +457,13 @@ export async function fetchEmailFull(
     };
 
   } catch (err) {
-    console.error(`[gmail] Failed to fetch full email ${messageId}:`, err);
+    // console.error(`[gmail] Failed to fetch full email ${messageId}:`, err);
+    logger.error("Failed to fetch Gmail message", {
+      messageId,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    
     return null;
   }
 }

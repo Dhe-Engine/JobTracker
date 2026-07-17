@@ -19,6 +19,7 @@ const client_1 = require("../db/client");
 const config_1 = require("../core/config");
 const goal_services_1 = require("../services/goal.services");
 const timezone_1 = require("../utils/timezone");
+const logger_1 = require("../core/logger");
 /*
 starts the cron job: run every minute
 
@@ -30,10 +31,15 @@ function startDailySummaryCron() {
             await processMidnightUsers();
         }
         catch (err) {
-            console.error("[daily-summary] cron job failed");
+            // console.error("[daily-summary] cron job failed");
+            logger_1.logger.error("Daily summary cron job failed", {
+                error: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     });
-    console.log("[daily-summary] cron job started");
+    // console.log("[daily-summary] cron job started")
+    logger_1.logger.info("Daily summary cron job started");
 }
 /**
  * process users currently at midnight
@@ -67,13 +73,21 @@ async function processMidnightUsers() {
     });
     if (midnightUsers.length === 0)
         return;
-    console.log(`[daily-summary] processing ${midnightUsers.length} user(s) at midnight`);
+    // console.log(`[daily-summary] processing ${midnightUsers.length} user(s) at midnight`);
+    logger_1.logger.info("Processing users at local midnight", {
+        userCount: midnightUsers.length,
+    });
     for (const user of midnightUsers) {
         try {
             await processUserDailySummary(user.id, user.timezone);
         }
         catch (err) {
-            console.error(`[daily-summary] failed for user ${user.id} (${user.email}):`, err);
+            logger_1.logger.error("Failed to process daily summary", {
+                userId: user.id,
+                email: user.email,
+                error: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     }
 }
@@ -145,6 +159,15 @@ async function processUserDailySummary(userId, timezone) {
             .update({ shame_screen_pending: true })
             .eq("user_id", userId);
     }
+    logger_1.logger.info("Daily summary generated", {
+        userId,
+        date: summaryDate,
+        appliedCount: todayApplied,
+        target: effectiveTarget,
+        metTarget,
+        streakDay,
+        carryoverToNext,
+    });
 }
 /*
 computes streak values

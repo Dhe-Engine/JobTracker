@@ -9,6 +9,7 @@ purpose:
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "../core/config";
 import type { EmailMetadata, ParsedEmail } from "../models/application.model";
+import { logger } from "../core/logger";
 
 
 //initialize google clientge
@@ -200,7 +201,11 @@ ${bodyPreview}`;
     |
     |--------------------------------------------------------------------------
     */
-    console.error("[email-parser] Gemini API call failed:", err);
+    // console.error("[email-parser] Gemini API call failed:", err);
+
+    logger.error("Gemini email classification failed", {
+      error: err,
+    });
 
     return {
       is_job_application: false,
@@ -274,11 +279,16 @@ function parseGeminiResponse(
   */
   try {
     parsed = JSON.parse(cleaned);
-  } catch {
-    console.error(
-      "[email-parser] Could not parse Gemini response as JSON:",
-      rawText
-    );
+  } 
+  catch {
+    // console.error(
+    //   "[email-parser] Could not parse Gemini response as JSON:",
+    //   rawText
+    // );
+
+    logger.error("Failed to parse Gemini response as JSON", {
+      rawResponse: rawText,
+    });
   }
 
   /*
@@ -325,13 +335,18 @@ function parseGeminiResponse(
       isObviousConfirmation(email)
     ) {
 
-      console.log(
-        "[email-parser] Heuristic override: Gemini returned false but subject/sender matched known confirmation patterns.",
-        {
-          subject: email.subject,
-          from: email.from,
-        }
-      );
+      // console.log(
+      //   "[email-parser] Heuristic override: Gemini returned false but subject/sender matched known confirmation patterns.",
+      //   {
+      //     subject: email.subject,
+      //     from: email.from,
+      //   }
+      // );
+
+      logger.info("Email classification overridden by heuristic", {
+        subject: email.subject,
+        from: email.from,
+      });
 
       return {
         ...result,
@@ -353,9 +368,11 @@ function parseGeminiResponse(
   |
   |--------------------------------------------------------------------------
   */
-  console.warn(
-    "[email-parser] Gemini returned unparseable response, using heuristic fallback"
-  );
+  // console.warn(
+  //   "[email-parser] Gemini returned unparseable response, using heuristic fallback"
+  // );
+
+  logger.warn("Gemini returned unparseable response, using heuristic fallback");
 
   if (isObviousConfirmation(email)) {
     return {

@@ -11,6 +11,7 @@ what it does:
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "../core/config";
+import { logger } from "../core/logger";
 
 
 export type QuoteTone = "night" | "morning" | "afternoon" | "evening";
@@ -79,10 +80,15 @@ export async function getMotivationQuote(
     catch (err) {
 
         //backup quote when ai fails
-        console.warn(
-            `[motivation-quotes] gemini api failed for tone "${tone}", using fallback:`,
-            err
-        );
+        // console.warn(
+        //     `[motivation-quotes] gemini api failed for tone "${tone}", using fallback:`,
+        //     err
+        // );
+
+        logger.warn("Gemini motivation quote generation failed, using fallback", {
+            tone,
+            error: err,
+        });
         return fallbackQuotes[tone];
     }
 }

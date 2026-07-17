@@ -6,14 +6,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.config = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
+const logger_1 = require("./logger");
 // Load .env before anything reads process.env
 // path.resolve ensures it finds the file regardless of where the server is started from
 dotenv_1.default.config({
     path: path_1.default.resolve(process.cwd(), ".env"),
 });
 //temporary debugging (remove after confirming it works)
-console.log("Current working directory:", process.cwd());
-console.log("GOOGLE_CLIENT_ID loaded:", !!process.env.GOOGLE_CLIENT_ID);
+logger_1.logger.debug("Current working directory:", {
+    cwd: process.cwd()
+});
+logger_1.logger.debug("GOOGLE_CLIENT_ID loaded:", {
+    googleClientIdLoaded: !!process.env.GOOGLE_CLIENT_ID,
+});
 const zod_1 = require("zod");
 /**
  * Environment Configuration Schema

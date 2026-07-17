@@ -21,8 +21,7 @@ import { requireAuth } from "../core/middleware";
 import { setupGmailWatch, disconnectGmail } from "../services/gmail.service";
 import { emailScanQueue } from "../workers/email-scan.worker";
 import { db } from "../db/client";
-import { exists } from "node:fs";
-import { error } from "node:console";
+import { logger } from "../core/logger";
 
 
 //register all gmail related routes
@@ -78,7 +77,11 @@ export async function gmailRoutes(app: FastifyInstance) {
                 });
             } 
             catch (err) {
-                console.error("[gmail/connect] failed to setup gmail watch", err);
+                // console.error("[gmail/connect] failed to setup gmail watch", err);
+                logger.error("Gmail watch setup failed", {
+                    userId,
+                    error: err,
+                });
 
                 return reply.status(500).send({
                     error: "Failed to connect Gmail. Check that your Google Cloud Pub/Sub topic is configured.",
@@ -152,7 +155,9 @@ export async function gmailRoutes(app: FastifyInstance) {
 
                 //validate if notification payload exists
                 if (!messageData) {
-                    console.warn("[gmail/push] received push with no data");
+                    // console.warn("[gmail/push] received push with no data");
+
+                    logger.warn("Received Gmail push notification with no data");
                     return;
                 }
 
@@ -165,8 +170,12 @@ export async function gmailRoutes(app: FastifyInstance) {
                 };
 
                 //validate required notifications field
-                if (!notification.emailAddress || !notification.historyId){
-                    console.warn("[gmail/push] malformed notification:", notification);
+                if (!notification.emailAddress || !notification.historyId) {
+                    // console.warn("[gmail/push] malformed notification:", notification);
+
+                    logger.warn("Received malformed Gmail push notification", {
+                        notification,
+                    });
                     return;
                 }
 
@@ -178,9 +187,12 @@ export async function gmailRoutes(app: FastifyInstance) {
                     .single();
 
                 if (!user) {
-                    console.warn(
-                        `[gmail/push] no user found for ${notification.emailAddress}`
-                    );
+                    // console.warn(
+                    //     `[gmail/push] no user found for ${notification.emailAddress}`
+                    // );
+                    logger.warn("No user found for Gmail push notification", {
+                        email: notification.emailAddress,
+                    });
                     return;
                 }
 
@@ -199,12 +211,20 @@ export async function gmailRoutes(app: FastifyInstance) {
                 );
 
                 //log successful enqueue
-                console.log(`[gmail/push] enqueued scan job for user ${user.id}, historyId ${notification.historyId}`);
+                // console.log(`[gmail/push] enqueued scan job for user ${user.id}, historyId ${notification.historyId}`);
+                logger.info("Gmail inbox scan job enqueued", {
+                    userId: user.id,
+                    historyId: notification.historyId,
+                });
             }
 
             catch(err) {
                 //log errors safely
-                console.error("[gmail/push] error processing push notification:", err);
+                // console.error("[gmail/push] error processing push notification:", err);
+
+                logger.error("Failed to process Gmail push notification", {
+                    error: err,
+                });
             }
         }
     );

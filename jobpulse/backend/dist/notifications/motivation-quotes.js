@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getMotivationQuote = getMotivationQuote;
 const generative_ai_1 = require("@google/generative-ai");
 const config_1 = require("../core/config");
+const logger_1 = require("../core/logger");
 //gemini setup
 const genAI = new generative_ai_1.GoogleGenerativeAI(config_1.config.gemini.apiKey);
 const model = genAI.getGenerativeModel({ model: config_1.config.gemini.model });
@@ -55,7 +56,14 @@ async function getMotivationQuote(tone, context) {
     }
     catch (err) {
         //backup quote when ai fails
-        console.warn(`[motivation-quotes] gemini api failed for tone "${tone}", using fallback:`, err);
+        // console.warn(
+        //     `[motivation-quotes] gemini api failed for tone "${tone}", using fallback:`,
+        //     err
+        // );
+        logger_1.logger.warn("Gemini motivation quote generation failed, using fallback", {
+            tone,
+            error: err,
+        });
         return fallbackQuotes[tone];
     }
 }

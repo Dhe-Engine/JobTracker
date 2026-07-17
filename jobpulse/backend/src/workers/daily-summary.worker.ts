@@ -13,8 +13,9 @@ import cron from "node-cron";
 import { db } from "../db/client";
 import { config } from "../core/config";
 import { computeEffectiveTarget, applyCarryover } from "../services/goal.services";
-import { getTodayinTimeZone,getYesterdayInTimeZone } from "../utils/timezone";
+import { getTodayinTimeZone, getYesterdayInTimeZone } from "../utils/timezone";
 import type { DailySummaryInput } from "../models/daily-summary.model";
+import { logger } from "../core/logger";
 
 
 /*
@@ -26,16 +27,21 @@ detect users whose local timzone is midnight
 export function startDailySummaryCron(): void {
 
     cron.schedule("* * * * *", async () => {
-        try{
+        try {
             await processMidnightUsers();
         }
-        catch(err) {
-            console.error("[daily-summary] cron job failed");
+        catch (err) {
+            // console.error("[daily-summary] cron job failed");
+            logger.error("Daily summary cron job failed", {
+                error: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     });
 
-    console.log("[daily-summary] cron job started")
-} 
+    // console.log("[daily-summary] cron job started")
+    logger.info("Daily summary cron job started");
+}
 
 
 /**
@@ -49,13 +55,13 @@ export function startDailySummaryCron(): void {
 
 async function processMidnightUsers(): Promise<void> {
 
-    const {data: users, error } = await db
+    const { data: users, error } = await db
         .from("users")
         .select("id, timezone, email")
         .not("timezone", "is", null);
 
     if (error || !users || users.length === 0) return;
-    
+
     const now = new Date();
 
     const midnightUsers = users.filter((user) => {
@@ -79,17 +85,24 @@ async function processMidnightUsers(): Promise<void> {
 
     if (midnightUsers.length === 0) return;
 
-    console.log(`[daily-summary] processing ${midnightUsers.length} user(s) at midnight`);
+    // console.log(`[daily-summary] processing ${midnightUsers.length} user(s) at midnight`);
+
+    logger.info("Processing users at local midnight", {
+        userCount: midnightUsers.length,
+    });
 
     for (const user of midnightUsers) {
 
-        try{
+        try {
             await processUserDailySummary(user.id, user.timezone);
         }
         catch (err) {
-            console.error(`[daily-summary] failed for user ${user.id} (${user.email}):`,
-                err
-            );
+            logger.error("Failed to process daily summary", {
+                userId: user.id,
+                email: user.email,
+                error: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     }
 }
@@ -97,27 +110,27 @@ async function processMidnightUsers(): Promise<void> {
 
 //processes a user's daily summary
 async function processUserDailySummary(
-    userId:string,
+    userId: string,
     timezone: string
 ): Promise<void> {
 
     const summaryDate = getYesterdayInTimeZone(timezone);
 
     //prevent duplicate summaries
-    const {count: existingCount } = await db
+    const { count: existingCount } = await db
         .from("daily_summaries")
-        .select("id", {count: "exact", head: true})
+        .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("date", summaryDate);
-    
+
     if (existingCount && existingCount > 0) {
         return;
     }
 
     //count applications
-    const {count: appliedCount} = await db
+    const { count: appliedCount } = await db
         .from("applications")
-        .select("id", {count: "exact", head: true})
+        .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .gte("applied_at", `${summaryDate}T00:00:00+00:00`)
         .lte("applied_at", `${summaryDate}T23:59:59+00:00`);
@@ -131,7 +144,7 @@ async function processUserDailySummary(
     const metTarget = effectiveTarget > 0 && todayApplied >= effectiveTarget;
 
     //compute streak
-    const {streakDay, longestStreak} = await computeStreak(
+    const { streakDay, longestStreak } = await computeStreak(
         userId,
         metTarget,
         timezone
@@ -140,14 +153,14 @@ async function processUserDailySummary(
     //compute carryover
     let carryoverToNext = 0;
 
-    if(!metTarget && effectiveTarget > 0) {
+    if (!metTarget && effectiveTarget > 0) {
 
         const missed = effectiveTarget - todayApplied;
         const baseTarget = goalSummary?.base_target ?? effectiveTarget;
         const maxCarryover = baseTarget * config.rules.carryoverCapMultiplier;
 
-        carryoverToNext = Math.min(Math.max(0,missed), maxCarryover);
-    } 
+        carryoverToNext = Math.min(Math.max(0, missed), maxCarryover);
+    }
 
     //build summary payload
     const summaryInput: DailySummaryInput = {
@@ -162,17 +175,17 @@ async function processUserDailySummary(
     };
 
     //save summary
-    const {error: insertError} = await db.from("daily_summaries").insert({
-        user_id:summaryInput.userId,
+    const { error: insertError } = await db.from("daily_summaries").insert({
+        user_id: summaryInput.userId,
         date: summaryInput.date,
         applied_count: summaryInput.appliedCount,
         target: summaryInput.target,
-        met_target:summaryInput.metTarget,
+        met_target: summaryInput.metTarget,
         streak_day: summaryInput.streakDay,
         carryover_to_next: summaryInput.carryoverToNext,
     });
 
-    if(insertError){
+    if (insertError) {
         throw new Error(insertError.message);
     }
 
@@ -183,12 +196,22 @@ async function processUserDailySummary(
     await applyCarryover(userId, todayApplied, effectiveTarget);
 
     //set shame screen flag
-    if(!metTarget && effectiveTarget > 0){
+    if (!metTarget && effectiveTarget > 0) {
         await db
             .from("streaks")
-            .update({shame_screen_pending: true})
+            .update({ shame_screen_pending: true })
             .eq("user_id", userId);
     }
+
+    logger.info("Daily summary generated", {
+        userId,
+        date: summaryDate,
+        appliedCount: todayApplied,
+        target: effectiveTarget,
+        metTarget,
+        streakDay,
+        carryoverToNext,
+    });
 }
 
 
@@ -204,9 +227,9 @@ async function computeStreak(
     userId: string,
     metTargetToday: boolean,
     timezone: string
-): Promise<{streakDay: number; longestStreak: number}> {
+): Promise<{ streakDay: number; longestStreak: number }> {
 
-    const {data:streakRecord} = await db
+    const { data: streakRecord } = await db
         .from("streaks")
         .select("current_streak, longest_streak, last_active_date")
         .eq("user_id", userId)
@@ -221,10 +244,10 @@ async function computeStreak(
 
     let newStreakDay: number;
 
-    if(!metTargetToday) {
+    if (!metTargetToday) {
         newStreakDay = 0;
     }
-    else if (!hadStreakYesterday && previousStreak > 0){
+    else if (!hadStreakYesterday && previousStreak > 0) {
         newStreakDay = 1;
     }
     else {
@@ -250,21 +273,21 @@ async function updateStreakRecord(
 
     const today = new Date().toISOString().split("T")[0];
 
-    const {error} = await db
+    const { error } = await db
         .from("streaks")
         .upsert(
             {
                 user_id: userId,
                 current_streak: currentStreak,
                 longest_streak: longestStreak,
-                last_active_date: metTarget ? today: undefined,
+                last_active_date: metTarget ? today : undefined,
             },
             {
                 onConflict: "user_id",
             }
         );
 
-        if(error) {
-            throw new Error(`failed to update streak: ${error.message}`);
-        }
+    if (error) {
+        throw new Error(`failed to update streak: ${error.message}`);
+    }
 }

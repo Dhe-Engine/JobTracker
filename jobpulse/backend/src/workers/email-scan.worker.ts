@@ -13,13 +13,14 @@ what to do:
     - handle failure without breaking
 */
 
-import {Worker, Queue} from "bullmq";
+import { Worker, Queue } from "bullmq";
 import { config } from "../core/config";
 import { db } from "../db/client";
 import { getNewEmails, fetchEmailFull } from "../services/gmail.service";
 import { classifyEmail } from "../services/email-parser.service";
 import { getGmailClientForUser } from "../services/auth.service";
 import { google } from "googleapis";
+import { logger } from "../core/logger";
 
 
 /*
@@ -41,81 +42,125 @@ export const emailScanQueue = new Queue("email-scan", {
             type: "exponential",
             delay: 2000,
         },
-        removeOnComplete: {age: 86400}, //24hrs
-        removeOnFail: {age: 604800} //7days
+        removeOnComplete: { age: 86400 }, //24hrs
+        removeOnFail: { age: 604800 } //7days
     },
 });
 
 export const emailScanWorker = new Worker("email-scan", async (job) => {
 
     //this object process jobs from email scan queue object
-    const  {userId, historyId} = job.data as {
+    const { userId, historyId } = job.data as {
         userId: string;
         historyId: string;
     };
 
-    console.log(`[email-scan] processing job ${job.id} for user ${userId}`);
+    // console.log(`[email-scan] processing job ${job.id} for user ${userId}`);
+    logger.info("Email scan job processing", {
+        jobId: job.id,
+        userId,
+    });
 
     const { client } = await getGmailClientForUser(userId);
+
+    logger.debug("Gmail client initialized", {
+        jobId: job.id,
+        userId,
+    });
+
     const gmail = google.gmail({ version: "v1", auth: client as any });
 
     //1.fetch new emails
     const newEmails = await getNewEmails(userId, historyId);
 
-    if(newEmails.length === 0) {
-        console.log(`[email-scan] no new emails for user ${userId}`);
+    if (newEmails.length === 0) {
+        // console.log(`[email-scan] no new emails for user ${userId}`);
+        logger.info("No new emails found", {
+            jobId: job.id,
+            userId,
+        });
         return;
     }
 
-    console.log(
-      `[email-scan] Found ${newEmails.length} new email(s) for user ${userId}`
-    );
+    // console.log(
+    //   `[email-scan] Found ${newEmails.length} new email(s) for user ${userId}`
+    // );
+    logger.info("New Gmail messages found", {
+        jobId: job.id,
+        userId,
+        emailCount: newEmails.length,
+    });
 
     //2. process each email sequentially to isolate errors 
-    for (const email of newEmails){
+    for (const email of newEmails) {
 
         //check for duplicate
-        const {count} = await db
+        const { count } = await db
             .from("applications")
-            .select("id",{count:"exact",head:true})
-            .eq("user_id",userId)
-            .eq("email_id",email.gmail_message_id);
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", userId)
+            .eq("email_id", email.gmail_message_id);
 
-        if (count && count > 0){
-            console.log(`[email-scan] skipping duplicate email ${email.gmail_message_id}`);
+        if (count && count > 0) {
+            // console.log(`[email-scan] skipping duplicate email ${email.gmail_message_id}`);
+            logger.debug("Skipping duplicate application email", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: email.gmail_message_id,
+            });
             continue;
         }
 
         const fullEmail = await fetchEmailFull(gmail, email.gmail_message_id);
 
         if (!fullEmail) {
-            console.warn(`[email-scan] Could not fetch full email ${email.gmail_message_id}`);
+            // console.warn(`[email-scan] Could not fetch full email ${email.gmail_message_id}`);
+            logger.warn("Failed to fetch Gmail message", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: email.gmail_message_id,
+            });
             continue;
         }
 
         //classify email using ai
         const classification = await classifyEmail(fullEmail);
 
-        console.log(`[email-scan] Classification result`, {
-            subject:            fullEmail.subject,
-            from:               fullEmail.from,
-            is_job_application: classification.is_job_application,
-            confidence:         classification.confidence,
-            company:            classification.company,
-            role:               classification.role,
+        logger.info("Email classification completed", {
+            jobId: job.id,
+            userId,
+            gmailMessageId: fullEmail.gmail_message_id,
+            subject: fullEmail.subject,
+            from: fullEmail.from,
+            isJobApplication: classification.is_job_application,
+            confidence: classification.confidence,
+            company: classification.company,
+            role: classification.role,
         });
 
         //filter non-job emails
         if (!classification.is_job_application) {
-            console.log(`[email-scan] Not a job application — skipping`);
+            // console.log(`[email-scan] Not a job application — skipping`);
+            logger.debug("Skipping non-job email", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+            });
             continue;
         }
 
         //filter low confidence results
-        if (classification.confidence === "low"){
-            console.log(`[email-scan] low confidence for "${email.subject}" - skipping` +
-            `Consider checking if this is a valid application email.`
-            );
+        if (classification.confidence === "low") {
+            // console.log(`[email-scan] low confidence for "${email.subject}" - skipping` +
+            //     `Consider checking if this is a valid application email.`
+            // );
+            logger.info("Skipping low-confidence email classification", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+                subject: fullEmail.subject,
+                confidence: classification.confidence,
+            });
             continue;
         }
 
@@ -123,7 +168,7 @@ export const emailScanWorker = new Worker("email-scan", async (job) => {
         const company = classification.company ?? extractCompanyFromSender(fullEmail.from);
 
         //persist application
-        const {error:insertError} = await db.from("applications").insert({
+        const { error: insertError } = await db.from("applications").insert({
 
             user_id: userId,
             company,
@@ -135,24 +180,37 @@ export const emailScanWorker = new Worker("email-scan", async (job) => {
         });
 
         if (insertError) {
-            console.error(
-                `[email-scan] failed to insert applicationn for email ${email.gmail_message_id}: `,
-                insertError.message
-            );
+            // console.error(
+            //     `[email-scan] failed to insert applicationn for email ${email.gmail_message_id}: `,
+            //     insertError.message
+            // );
+            logger.error("Failed to save application", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+                error: insertError.message,
+            });
         }
         else {
-            console.log(
-                `[email-scan]✅ saved application: ${classification.company} - ${classification.role}`
-            );
+            // console.log(
+            //     `[email-scan]✅ saved application: ${classification.company} - ${classification.role}`
+            // );
+            logger.info("Application saved", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+                company,
+                role: classification.role ?? "Unknown Role",
+            });
         }
     }
 },
 
-//worker configuration to process multiple users in parallel
-{
-    connection: {url: config.redis.url},
-    concurrency: 5,
-}
+    //worker configuration to process multiple users in parallel
+    {
+        connection: { url: config.redis.url },
+        concurrency: 5,
+    }
 );
 
 /*
@@ -161,13 +219,21 @@ event listeners
 used for debugging
 */
 emailScanWorker.on("completed", (job) => {
-    console.log(`[email-scan] job ${job.id} completed`);
+    // console.log(`[email-scan] job ${job.id} completed`);
+    logger.info("Email scan job completed", {
+        jobId: job.id,
+    });
 });
 
 emailScanWorker.on("failed", (job, err) => {
-    console.error(`[email-scan] job ${job?.id} failed after all retries:`,
-        err.message
-    );
+    // console.error(`[email-scan] job ${job?.id} failed after all retries:`,
+    //     err.message
+    // );
+    logger.error("Email scan job failed", {
+        jobId: job?.id,
+        error: err.message,
+        stack: err.stack,
+    });
 });
 
 
@@ -192,7 +258,7 @@ const ATS_DOMAINS = new Set([
     "bamboohr.com",
 ]);
 
-function extractCompanyFromSender(from: string): string{
+function extractCompanyFromSender(from: string): string {
 
     //extract email address from "from" field
     const emailMatch = from.match(/<(.+)>/) ?? from.match(/(\S+@\S+)/);
@@ -210,7 +276,7 @@ function extractCompanyFromSender(from: string): string{
 
     //infer company name
     const parts = domain.split(".");
-    const companyPart = parts.length >= 2 ? parts[parts.length -2] : parts[0];
+    const companyPart = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
 
     return companyPart.charAt(0).toUpperCase() + companyPart.slice(1);
 

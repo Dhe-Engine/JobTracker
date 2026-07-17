@@ -15,6 +15,7 @@ const gmail_service_1 = require("../services/gmail.service");
 const google_auth_library_1 = require("google-auth-library");
 const config_1 = require("../core/config");
 const auth_service_1 = require("../services/auth.service");
+const logger_1 = require("../core/logger");
 async function accountRoutes(app) {
     /**
     delete account
@@ -28,7 +29,11 @@ async function accountRoutes(app) {
             await (0, gmail_service_1.disconnectGmail)(userId);
         }
         catch (err) {
-            console.warn(`[account] gmail disconnect failed for ${userId}`, err);
+            // console.warn(`[account] gmail disconnect failed for ${userId}`, err);
+            logger_1.logger.warn("Gmail disconnect failed during account deletion", {
+                userId,
+                error: err,
+            });
         }
         //revoke google oauth token
         try {
@@ -52,7 +57,11 @@ async function accountRoutes(app) {
             }
         }
         catch (err) {
-            console.warn(`[account] Token revocation failed for ${userId}`, err);
+            // console.warn(`[account] Token revocation failed for ${userId}`, err)
+            logger_1.logger.warn("Google OAuth token revocation failed during account deletion", {
+                userId,
+                error: err,
+            });
         }
         //delete user from database
         const { error } = await client_1.db

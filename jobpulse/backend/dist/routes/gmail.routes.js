@@ -21,6 +21,7 @@ const middleware_1 = require("../core/middleware");
 const gmail_service_1 = require("../services/gmail.service");
 const email_scan_worker_1 = require("../workers/email-scan.worker");
 const client_1 = require("../db/client");
+const logger_1 = require("../core/logger");
 //register all gmail related routes
 async function gmailRoutes(app) {
     /*
@@ -64,7 +65,11 @@ async function gmailRoutes(app) {
             });
         }
         catch (err) {
-            console.error("[gmail/connect] failed to setup gmail watch", err);
+            // console.error("[gmail/connect] failed to setup gmail watch", err);
+            logger_1.logger.error("Gmail watch setup failed", {
+                userId,
+                error: err,
+            });
             return reply.status(500).send({
                 error: "Failed to connect Gmail. Check that your Google Cloud Pub/Sub topic is configured.",
             });
@@ -114,7 +119,8 @@ async function gmailRoutes(app) {
             const messageData = req.body?.message?.data;
             //validate if notification payload exists
             if (!messageData) {
-                console.warn("[gmail/push] received push with no data");
+                // console.warn("[gmail/push] received push with no data");
+                logger_1.logger.warn("Received Gmail push notification with no data");
                 return;
             }
             //decode base64 notifs payload
@@ -122,7 +128,10 @@ async function gmailRoutes(app) {
             const notification = JSON.parse(decoded);
             //validate required notifications field
             if (!notification.emailAddress || !notification.historyId) {
-                console.warn("[gmail/push] malformed notification:", notification);
+                // console.warn("[gmail/push] malformed notification:", notification);
+                logger_1.logger.warn("Received malformed Gmail push notification", {
+                    notification,
+                });
                 return;
             }
             //find user by email
@@ -132,7 +141,12 @@ async function gmailRoutes(app) {
                 .eq("email", notification.emailAddress)
                 .single();
             if (!user) {
-                console.warn(`[gmail/push] no user found for ${notification.emailAddress}`);
+                // console.warn(
+                //     `[gmail/push] no user found for ${notification.emailAddress}`
+                // );
+                logger_1.logger.warn("No user found for Gmail push notification", {
+                    email: notification.emailAddress,
+                });
                 return;
             }
             //enqueue inbox scan job
@@ -144,11 +158,18 @@ async function gmailRoutes(app) {
                 jobId: `scan-${user.id}-${notification.historyId}`,
             });
             //log successful enqueue
-            console.log(`[gmail/push] enqueued scan job for user ${user.id}, historyId ${notification.historyId}`);
+            // console.log(`[gmail/push] enqueued scan job for user ${user.id}, historyId ${notification.historyId}`);
+            logger_1.logger.info("Gmail inbox scan job enqueued", {
+                userId: user.id,
+                historyId: notification.historyId,
+            });
         }
         catch (err) {
             //log errors safely
-            console.error("[gmail/push] error processing push notification:", err);
+            // console.error("[gmail/push] error processing push notification:", err);
+            logger_1.logger.error("Failed to process Gmail push notification", {
+                error: err,
+            });
         }
     });
 }
