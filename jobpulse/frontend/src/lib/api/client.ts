@@ -74,9 +74,8 @@ async function request<T>(
 
     // Base backend url from environment variable
     const baseUrl = 
-      process.env.NODE_ENV === "production"
-        ? ""
-        : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001");
+        process.env.NEXT_PUBLIC_API_URL ?? 
+        "http://localhost:3001";
 
     //prevent double slashes  example: http://localhost:3001//api/dashboard
     const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
