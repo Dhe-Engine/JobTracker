@@ -22,6 +22,7 @@ const gmail_service_1 = require("../services/gmail.service");
 const email_parser_service_1 = require("../services/email-parser.service");
 const auth_service_1 = require("../services/auth.service");
 const googleapis_1 = require("googleapis");
+const logger_1 = require("../core/logger");
 /*
 queue setup
 
@@ -47,16 +48,35 @@ exports.emailScanQueue = new bullmq_1.Queue("email-scan", {
 exports.emailScanWorker = new bullmq_1.Worker("email-scan", async (job) => {
     //this object process jobs from email scan queue object
     const { userId, historyId } = job.data;
-    console.log(`[email-scan] processing job ${job.id} for user ${userId}`);
+    // console.log(`[email-scan] processing job ${job.id} for user ${userId}`);
+    logger_1.logger.info("Email scan job processing", {
+        jobId: job.id,
+        userId,
+    });
     const { client } = await (0, auth_service_1.getGmailClientForUser)(userId);
+    logger_1.logger.debug("Gmail client initialized", {
+        jobId: job.id,
+        userId,
+    });
     const gmail = googleapis_1.google.gmail({ version: "v1", auth: client });
     //1.fetch new emails
     const newEmails = await (0, gmail_service_1.getNewEmails)(userId, historyId);
     if (newEmails.length === 0) {
-        console.log(`[email-scan] no new emails for user ${userId}`);
+        // console.log(`[email-scan] no new emails for user ${userId}`);
+        logger_1.logger.info("No new emails found", {
+            jobId: job.id,
+            userId,
+        });
         return;
     }
-    console.log(`[email-scan] Found ${newEmails.length} new email(s) for user ${userId}`);
+    // console.log(
+    //   `[email-scan] Found ${newEmails.length} new email(s) for user ${userId}`
+    // );
+    logger_1.logger.info("New Gmail messages found", {
+        jobId: job.id,
+        userId,
+        emailCount: newEmails.length,
+    });
     //2. process each email sequentially to isolate errors 
     for (const email of newEmails) {
         //check for duplicate
@@ -66,33 +86,59 @@ exports.emailScanWorker = new bullmq_1.Worker("email-scan", async (job) => {
             .eq("user_id", userId)
             .eq("email_id", email.gmail_message_id);
         if (count && count > 0) {
-            console.log(`[email-scan] skipping duplicate email ${email.gmail_message_id}`);
+            // console.log(`[email-scan] skipping duplicate email ${email.gmail_message_id}`);
+            logger_1.logger.debug("Skipping duplicate application email", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: email.gmail_message_id,
+            });
             continue;
         }
         const fullEmail = await (0, gmail_service_1.fetchEmailFull)(gmail, email.gmail_message_id);
         if (!fullEmail) {
-            console.warn(`[email-scan] Could not fetch full email ${email.gmail_message_id}`);
+            // console.warn(`[email-scan] Could not fetch full email ${email.gmail_message_id}`);
+            logger_1.logger.warn("Failed to fetch Gmail message", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: email.gmail_message_id,
+            });
             continue;
         }
         //classify email using ai
         const classification = await (0, email_parser_service_1.classifyEmail)(fullEmail);
-        console.log(`[email-scan] Classification result`, {
+        logger_1.logger.info("Email classification completed", {
+            jobId: job.id,
+            userId,
+            gmailMessageId: fullEmail.gmail_message_id,
             subject: fullEmail.subject,
             from: fullEmail.from,
-            is_job_application: classification.is_job_application,
+            isJobApplication: classification.is_job_application,
             confidence: classification.confidence,
             company: classification.company,
             role: classification.role,
         });
         //filter non-job emails
         if (!classification.is_job_application) {
-            console.log(`[email-scan] Not a job application — skipping`);
+            // console.log(`[email-scan] Not a job application — skipping`);
+            logger_1.logger.debug("Skipping non-job email", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+            });
             continue;
         }
         //filter low confidence results
         if (classification.confidence === "low") {
-            console.log(`[email-scan] low confidence for "${email.subject}" - skipping` +
-                `Consider checking if this is a valid application email.`);
+            // console.log(`[email-scan] low confidence for "${email.subject}" - skipping` +
+            //     `Consider checking if this is a valid application email.`
+            // );
+            logger_1.logger.info("Skipping low-confidence email classification", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+                subject: fullEmail.subject,
+                confidence: classification.confidence,
+            });
             continue;
         }
         //Save to database 
@@ -108,10 +154,28 @@ exports.emailScanWorker = new bullmq_1.Worker("email-scan", async (job) => {
             applied_at: fullEmail.received_at,
         });
         if (insertError) {
-            console.error(`[email-scan] failed to insert applicationn for email ${email.gmail_message_id}: `, insertError.message);
+            // console.error(
+            //     `[email-scan] failed to insert applicationn for email ${email.gmail_message_id}: `,
+            //     insertError.message
+            // );
+            logger_1.logger.error("Failed to save application", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+                error: insertError.message,
+            });
         }
         else {
-            console.log(`[email-scan]✅ saved application: ${classification.company} - ${classification.role}`);
+            // console.log(
+            //     `[email-scan]✅ saved application: ${classification.company} - ${classification.role}`
+            // );
+            logger_1.logger.info("Application saved", {
+                jobId: job.id,
+                userId,
+                gmailMessageId: fullEmail.gmail_message_id,
+                company,
+                role: classification.role ?? "Unknown Role",
+            });
         }
     }
 }, 
@@ -126,10 +190,20 @@ event listeners
 used for debugging
 */
 exports.emailScanWorker.on("completed", (job) => {
-    console.log(`[email-scan] job ${job.id} completed`);
+    // console.log(`[email-scan] job ${job.id} completed`);
+    logger_1.logger.info("Email scan job completed", {
+        jobId: job.id,
+    });
 });
 exports.emailScanWorker.on("failed", (job, err) => {
-    console.error(`[email-scan] job ${job?.id} failed after all retries:`, err.message);
+    // console.error(`[email-scan] job ${job?.id} failed after all retries:`,
+    //     err.message
+    // );
+    logger_1.logger.error("Email scan job failed", {
+        jobId: job?.id,
+        error: err.message,
+        stack: err.stack,
+    });
 });
 /*
 a fallback mechanism for when ai cannot extract company's name

@@ -19,6 +19,7 @@ const goal_services_1 = require("../services/goal.services");
 const fcm_service_1 = require("../notifications/fcm.service");
 const message_composer_1 = require("../notifications/message-composer");
 const timezone_1 = require("../utils/timezone");
+const logger_1 = require("../core/logger");
 //start notification cron job
 function startNotificationCron() {
     node_cron_1.default.schedule(config_1.config.rules.notificationCronSchedule, async () => {
@@ -26,10 +27,17 @@ function startNotificationCron() {
             await processAllUsers();
         }
         catch (err) {
-            console.error("[notifications] cron run failed:", err);
+            // console.error("[notifications] cron run failed:", err);
+            logger_1.logger.error("Notification cron run failed", {
+                error: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     });
-    console.log("[notifications] cron started - running every 15 mins");
+    // console.log("[notifications] cron started - running every 15 mins")
+    logger_1.logger.info("Notification cron started", {
+        schedule: config_1.config.rules.notificationCronSchedule,
+    });
 }
 //process notification for all users
 async function processAllUsers() {
@@ -46,11 +54,26 @@ async function processAllUsers() {
     if (error || !users || users.length === 0)
         return;
     const eligbleUsers = users.filter((u) => Array.isArray(u.fcm_tokens) && u.fcm_tokens.length > 0);
-    console.log(`[notifications] processing ${eligbleUsers.length} eligible user(s)`);
+    // console.log(`[notifications] processing ${eligbleUsers.length} eligible user(s)`);
+    logger_1.logger.info("Processing notification batch", {
+        eligibleUserCount: eligbleUsers.length,
+    });
     const results = await Promise.allSettled(eligbleUsers.map((user) => processUserNotification(user.id, user.timezone)));
     results.forEach((result, i) => {
         if (result.status === "rejected") {
-            console.error(`[notifications] failed for user ${eligbleUsers[i].id}:`, result.reason);
+            // console.error(
+            //     `[notifications] failed for user ${eligbleUsers[i].id}:`,
+            //     result.reason
+            // );
+            logger_1.logger.error("Failed to process user notifications", {
+                userId: eligbleUsers[i].id,
+                error: result.reason instanceof Error
+                    ? result.reason.message
+                    : String(result.reason),
+                stack: result.reason instanceof Error
+                    ? result.reason.stack
+                    : undefined,
+            });
         }
     });
 }
@@ -87,8 +110,18 @@ async function processUserNotification(userId, timezone) {
     const sent = await (0, fcm_service_1.sendToUser)(userId, message);
     if (sent) {
         await (0, fcm_service_1.logNotificationSent)(userId, window, message.body);
-        console.log(`[notifications] sent ${window} notification to user ${userId}:` +
-            `"${message.title}" | ${appliedToday}/${effective_target} applied`);
+        // console.log(
+        //     `[notifications] sent ${window} notification to user ${userId}:` +
+        //     `"${message.title}" | ${appliedToday}/${effective_target} applied`
+        // );
+        logger_1.logger.info("Notification sent", {
+            userId,
+            window,
+            title: message.title,
+            appliedToday,
+            effectiveTarget: effective_target,
+            hoursRemaining,
+        });
     }
 }
 //check recent notification

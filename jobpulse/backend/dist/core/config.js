@@ -57,7 +57,10 @@ const envSchema = zod_1.z.object({
     //frontend url (for redirect after login)
     FRONTEND_URL: zod_1.z.url().default("https://job-tracker-liard-xi.vercel.app/"),
 });
-console.log("REDIS_URL =", process.env.REDIS_URL);
+// console.log("REDIS_URL =", process.env.REDIS_URL);
+logger_1.logger.debug("REDIS_URL =", {
+    redisUrl: process.env.REDIS_URL,
+});
 /*
 parse and validate environment variables
 throws immediately if validation fails
@@ -79,7 +82,10 @@ function parseFcmServiceAccount() {
         return parsed;
     }
     catch (err) {
-        console.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", err);
+        // console.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", err);
+        logger_1.logger.error("[config] Failed to parse FCM_SERVICE_ACCOUNT_KEY:", {
+            error: err instanceof Error ? err.message : String(err),
+        });
         throw new Error("Invalid FCM configuration");
     }
 }

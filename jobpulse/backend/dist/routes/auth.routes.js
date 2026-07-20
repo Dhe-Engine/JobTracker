@@ -72,7 +72,7 @@ async function authRoutes(app) {
             reply.setCookie("session", sessionToken, {
                 httpOnly: true,
                 secure: true,
-                sameSite: "lax",
+                sameSite: "none",
                 maxAge: 60 * 60 * 24 * 7,
                 path: "/",
             });
