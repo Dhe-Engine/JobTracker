@@ -73,9 +73,10 @@ async function request<T>(
   try {
 
     // Base backend url from environment variable
-    const baseUrl = 
-        process.env.NEXT_PUBLIC_API_URL ?? 
-        "http://localhost:3001";
+    const baseUrl =
+      process.env.NODE_ENV === "production"
+        ? ""  // relative — browser resolves against the current domain
+        : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001");
 
     //prevent double slashes  example: http://localhost:3001//api/dashboard
     const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
