@@ -83,7 +83,7 @@ export async function authRoutes(app: FastifyInstance) {
                 reply.setCookie("session", sessionToken, {
                     httpOnly: true,
                     secure: true,
-                    sameSite: "none",
+                    sameSite: "lax",
                     maxAge: 60 * 60 * 24 * 7,
                     path: "/",
                 });

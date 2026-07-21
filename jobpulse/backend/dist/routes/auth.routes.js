@@ -71,8 +71,8 @@ async function authRoutes(app) {
             */
             reply.setCookie("session", sessionToken, {
                 httpOnly: true,
-                secure: true,
-                sameSite: "none",
+                secure: config.env === "production",
+                sameSite: "lax",
                 maxAge: 60 * 60 * 24 * 7,
                 path: "/",
             });
