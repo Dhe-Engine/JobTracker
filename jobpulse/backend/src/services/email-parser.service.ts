@@ -134,7 +134,7 @@ Respond ONLY with a JSON object. No explanation, no markdown, no code fences.
 // so we don't block the worker for too long on each email.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MAX_RETRIES    = 2;       // initial attempt + 1 retry
+const MAX_RETRIES = 2;       // initial attempt + 1 retry
 const RETRY_DELAY_MS = 2000;    // 2 seconds between attempts
 
 async function callGeminiWithRetry(userMessage: string): Promise<string> {
@@ -147,7 +147,7 @@ async function callGeminiWithRetry(userMessage: string): Promise<string> {
         systemInstruction: CLASSIFICATION_SYSTEM_PROMPT,
         generationConfig: {
           // Low temperature = consistent, predictable JSON output
-          temperature:     0.1,
+          temperature: 0.1,
           maxOutputTokens: 256,
         },
       });
@@ -161,6 +161,19 @@ async function callGeminiWithRetry(userMessage: string): Promise<string> {
         err?.message?.includes("503") ||
         err?.message?.includes("Service Unavailable") ||
         err?.message?.includes("high demand");
+
+      // so retrying in 2 seconds won't help. Quarantine and try hours later.
+      const is429 =
+        err?.message?.includes("429") ||
+        err?.message?.includes("Too Many Requests") ||
+        err?.message?.includes("quota");
+
+      if (is429) {
+        console.warn(
+          "[email-parser] Gemini quota exceeded (429) — will quarantine for retry later"
+        );
+        throw err; // throw immediately, no point retrying
+      }
 
       if (!is503) {
         // Non-503 error (auth, quota exceeded etc.) — don't retry, throw immediately
@@ -206,7 +219,7 @@ export async function classifyEmail(
     : "(no body content available)";
 
   const userMessage =
-`Subject: ${email.subject}
+    `Subject: ${email.subject}
 From: ${email.from}
 
 Email body:
@@ -221,8 +234,8 @@ ${bodyPreview}`;
     // Log which email failed and why — visible in Railway logs
     console.error("[email-parser] Gemini classification failed:", {
       subject: email.subject,
-      from:    email.from,
-      error:   err?.message ?? String(err),
+      from: email.from,
+      error: err?.message ?? String(err),
     });
 
     // Determine if this is an API availability error or something else
@@ -230,6 +243,9 @@ ${bodyPreview}`;
       err?.message?.includes("503") ||
       err?.message?.includes("Service Unavailable") ||
       err?.message?.includes("high demand") ||
+      err?.message?.includes("429") ||
+      err?.message?.includes("Too Many Requests") ||
+      err?.message?.includes("quota") ||
       err?.message?.includes("GoogleGenerativeAI") ||
       err?.message?.includes("timeout") ||
       err?.message?.includes("fetch");
@@ -278,8 +294,8 @@ function parseGeminiResponse(
 
     const result: ParsedEmail = {
       is_job_application: parsed.is_job_application as boolean,
-      company:    typeof parsed.company === "string" ? parsed.company : null,
-      role:       typeof parsed.role    === "string" ? parsed.role    : null,
+      company: typeof parsed.company === "string" ? parsed.company : null,
+      role: typeof parsed.role === "string" ? parsed.role : null,
       confidence: validateConfidence(parsed.confidence),
     };
 
@@ -312,8 +328,8 @@ function parseGeminiResponse(
   if (isObviousConfirmation(email)) {
     return {
       is_job_application: true,
-      company:    extractCompanyFromSender(email.from),
-      role:       null,
+      company: extractCompanyFromSender(email.from),
+      role: null,
       confidence: "medium",
     };
   }
@@ -321,8 +337,8 @@ function parseGeminiResponse(
   // Cannot determine — return false (Gemini did respond, just unparseable)
   return {
     is_job_application: false,
-    company:    null,
-    role:       null,
+    company: null,
+    role: null,
     confidence: "low",
   };
 }
@@ -394,7 +410,7 @@ export function isObviousConfirmation(email: EmailMetadata): boolean {
     email.from.match(/<(.+)>/) ?? email.from.match(/(\S+@\S+)/);
 
   if (emailMatch) {
-    const senderEmail  = emailMatch[1] ?? emailMatch[0];
+    const senderEmail = emailMatch[1] ?? emailMatch[0];
     const senderDomain = senderEmail.split("@")[1]?.toLowerCase() ?? "";
 
     // Exact domain match
@@ -439,7 +455,7 @@ export function extractCompanyFromSender(from: string): string {
   if (!emailMatch) return "Unknown Company";
 
   const emailAddress = emailMatch[1] ?? emailMatch[0];
-  const domain       = emailAddress.split("@")[1]?.toLowerCase() ?? "";
+  const domain = emailAddress.split("@")[1]?.toLowerCase() ?? "";
 
   // If the sender is an ATS provider, try the display name instead
   // e.g. "Imagine Pediatrics Recruiting <no-reply@greenhouse-mail.io>"
@@ -459,7 +475,7 @@ export function extractCompanyFromSender(from: string): string {
 
   // Extract from domain: careers.google.com → Google
   // jobs.amazon.co.uk → Amazon
-  const parts       = domain.split(".");
+  const parts = domain.split(".");
   const companyPart = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
 
   return companyPart.charAt(0).toUpperCase() + companyPart.slice(1);
