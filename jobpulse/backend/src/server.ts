@@ -27,6 +27,7 @@ import { notificationRoutes } from "./routes/notifications.routes";
 import { accountRoutes }      from "./routes/account.routes";
 
 //workers
+import { startQuarantineRetryCron } from "./workers/quarantine-retry.worker";
 import { emailScanWorker } from "./workers/email-scan.worker";
 import { startDailySummaryCron } from "./workers/daily-summary.worker";
 import { startNotificationCron } from "./workers/notification.worker";
@@ -167,6 +168,9 @@ async function main() {
     //handle the notification process
     startNotificationCron();
     logger.info("✅ Notification cron running");
+
+    startQuarantineRetryCron();
+    logger.info("✅ Quarantine retry cron running");
 
     startGmailWatchRenewalCron();
     logger.info("✅ Gmail watch renewal cron running");

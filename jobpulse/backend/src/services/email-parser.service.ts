@@ -1,26 +1,69 @@
 /*
-purpose:
-    - send incoming emails metadata to gemini ai for classification
-    - check if an email is a job application confirmation
-    - extract the data: company, role, confidence
+what this service does:
+    - classifies emails using Gemini AI to detect job application confirmations
+    - extracts company name and role from the email
+    - provides a heuristic fallback when Gemini is unavailable
+    - throws GeminiUnavailableError so the worker can quarantine failed emails
+      instead of silently discarding them
 */
-
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "../core/config";
 import type { EmailMetadata, ParsedEmail } from "../models/application.model";
-import { logger } from "../core/logger";
 
 
-//initialize google clientge
+// ─────────────────────────────────────────────────────────────────────────────
+// GEMINI CLIENT
+// Created once and reused for every classification call.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
+const model = genAI.getGenerativeModel({ model: config.gemini.model });
 
-//ai model
-const model = genAI.getGenerativeModel({
-    model: config.gemini.model,
-})
 
-//system prompt to define how gemini behaves
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPED ERROR CLASS
+//
+// Why this exists:
+//   When classifyEmail() fails, the caller needs to know WHY it failed.
+//
+//   Case A: Gemini API was unavailable (503, timeout, rate limit)
+//           → The email should be QUARANTINED and retried later.
+//           → We have not made a classification decision yet.
+//
+//   Case B: Gemini said "is_job_application: false"
+//           → This IS a classification decision — discard the email.
+//
+//   Without this typed error, the worker cannot tell A from B.
+//   With it, the worker catches GeminiUnavailableError specifically
+//   and routes the email to the quarantine holding room.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class GeminiUnavailableError extends Error {
+  constructor(
+    message: string,
+    // reason is stored on the quarantine row so you know what went wrong
+    public readonly reason: "gemini_unavailable" | "gemini_parse_error" = "gemini_unavailable"
+  ) {
+    super(message);
+    this.name = "GeminiUnavailableError";
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SYSTEM PROMPT
+//
+// Key design decisions:
+//   1. Lenient-by-default — err toward true when uncertain.
+//      A missed application is worse than a false positive.
+//   2. Positive examples included — LLMs classify better with examples.
+//   3. ATS domains treated as strong signals.
+//   4. Rejection emails count as applications — we still want to track
+//      that the person applied even if they were rejected.
+//   5. Strict JSON-only output — no markdown, no preamble.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const CLASSIFICATION_SYSTEM_PROMPT = `You are an expert email classifier for a job application tracking app.
 
 Your task: decide if an email is a job application CONFIRMATION sent to a job seeker after they submitted an application.
@@ -52,20 +95,23 @@ Include ANY email that confirms a job application was received or submitted. The
 Only exclude when clearly one of these:
 - Job alert emails or newsletters ("New jobs matching your search")
 - Cold recruiter outreach asking if you are open to opportunities
-- Calendar invites or interview scheduling (the application was already tracked)
-- Account creation / profile setup emails with no application reference
+- Calendar invites or interview scheduling (application was already tracked)
+- Account creation or profile setup emails with no application reference
 
 ## IMPORTANT RULES
 
-1. **When in doubt, return true** — a false negative (missing a real application) is worse than a false positive
-2. **Use the email body** — subject lines alone can be misleading; read the body content
-3. **ATS domains are strong signals** — greenhouse-mail.io, ashbyhq.com, lever.co etc. almost always mean a job application confirmation
-4. **Rejection emails ARE application confirmations** — if someone applied and got rejected, we still want to track that they applied. Return is_job_application: true for rejection emails too, with role/company extracted.
-5. Extract company from the hiring company name, NOT the ATS provider name
+1. When in doubt, return true — a false negative is worse than a false positive
+2. Use the email body — subject lines alone can be misleading
+3. ATS domains are strong signals — greenhouse-mail.io, ashbyhq.com, lever.co etc.
+   almost always mean a job application confirmation
+4. Rejection emails ARE application confirmations — if someone applied and got
+   rejected, we still want to track that they applied. Return is_job_application: true
+   for rejection emails too, with role and company extracted.
+5. Extract company from the HIRING company name, NOT the ATS provider name
 
 ## Output format
 
-Respond ONLY with a JSON object — no explanation, no markdown, no code fences.
+Respond ONLY with a JSON object. No explanation, no markdown, no code fences.
 
 {
   "is_job_application": boolean,
@@ -75,196 +121,146 @@ Respond ONLY with a JSON object — no explanation, no markdown, no code fences.
 }
 
 - company: the hiring company (e.g. "Google", "Imagine Pediatrics") — not the ATS platform
-- role: the specific job title applied for, if mentioned
+- role: the specific job title applied for, if mentioned in the email
 - confidence: high = very certain, medium = probably correct, low = guessing`;
 
 
-/*
-|--------------------------------------------------------------------------
-| classifyEmail
-|--------------------------------------------------------------------------
-|
-| Uses Google's Gemini AI to decide whether an email is a real
-| job application.
-|
-| Instead of looking only at the email subject, Gemini can also read
-| part of the email body, giving it much more context.
-|
-| Example:
-|
-| Subject:
-|   "Thanks for applying!"
-|
-| Body:
-|   "We received your application for Software Engineer..."
-|
-| Gemini reads both and returns structured information like:
-|
-| {
-|   is_job_application: true,
-|   company: "Google",
-|   role: "Software Engineer",
-|   confidence: "high"
-| }
-|
-| If Gemini cannot be reached, the function safely falls back and marks
-| the email as NOT a confirmed application instead of crashing.
-|
-|--------------------------------------------------------------------------
-*/
+// ─────────────────────────────────────────────────────────────────────────────
+// GEMINI RETRY WRAPPER
+//
+// Gemini occasionally returns 503 when demand spikes.
+// We retry once with a short delay before giving up and quarantining.
+// Only one retry here — quarantine handles longer-term retries
+// so we don't block the worker for too long on each email.
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Sends one email to Gemini AI for classification.
- *
- * @param email Complete email information.
- * @returns AI classification result.
- */
+const MAX_RETRIES    = 2;       // initial attempt + 1 retry
+const RETRY_DELAY_MS = 2000;    // 2 seconds between attempts
+
+async function callGeminiWithRetry(userMessage: string): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        systemInstruction: CLASSIFICATION_SYSTEM_PROMPT,
+        generationConfig: {
+          // Low temperature = consistent, predictable JSON output
+          temperature:     0.1,
+          maxOutputTokens: 256,
+        },
+      });
+
+      return result.response.text();
+
+    } catch (err: any) {
+      lastError = err;
+
+      const is503 =
+        err?.message?.includes("503") ||
+        err?.message?.includes("Service Unavailable") ||
+        err?.message?.includes("high demand");
+
+      if (!is503) {
+        // Non-503 error (auth, quota exceeded etc.) — don't retry, throw immediately
+        throw err;
+      }
+
+      if (attempt < MAX_RETRIES) {
+        console.warn(
+          `[email-parser] Gemini 503 on attempt ${attempt}/${MAX_RETRIES}. ` +
+          `Retrying in ${RETRY_DELAY_MS}ms...`
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
+  }
+
+  // All attempts exhausted — throw the last error
+  throw lastError;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXPORT: classifyEmail
+//
+// Two possible outcomes:
+//   1. Returns a ParsedEmail — Gemini successfully classified the email.
+//      The result may be is_job_application: true OR false.
+//      Both are valid classification outcomes.
+//
+//   2. Throws GeminiUnavailableError — Gemini could not be reached.
+//      The caller should quarantine the email for retry later.
+//      This is NOT a classification — we simply don't know yet.
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function classifyEmail(
   email: EmailMetadata
 ): Promise<ParsedEmail> {
-  try {
-    /*
-    |--------------------------------------------------------------------------
-    | Prepare the email body
-    |--------------------------------------------------------------------------
-    |
-    | Very large emails cost more AI tokens.
-    |
-    | We only send the first 2,000 characters because that is usually
-    | enough for Gemini to understand what the email is about.
-    |
-    |--------------------------------------------------------------------------
-    */
-    const bodyPreview = email.body
-      ? email.body.slice(0, 2000).trim()
-      : "(no body content available)";
 
-    /*
-    |--------------------------------------------------------------------------
-    | Build the message sent to Gemini
-    |--------------------------------------------------------------------------
-    |
-    | The AI receives:
-    | • Subject
-    | • Sender
-    | • Email body
-    |
-    |--------------------------------------------------------------------------
-    */
-    const userMessage =
+  // Build the user message with full context.
+  // Truncate body to 2000 chars — enough for classification, keeps costs low.
+  const bodyPreview = email.body
+    ? email.body.slice(0, 2000).trim()
+    : "(no body content available)";
+
+  const userMessage =
 `Subject: ${email.subject}
 From: ${email.from}
 
 Email body:
 ${bodyPreview}`;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Ask Gemini to classify the email
-    |--------------------------------------------------------------------------
-    |
-    | Temperature is kept very low so Gemini gives consistent,
-    | predictable answers instead of creative ones.
-    |
-    |--------------------------------------------------------------------------
-    */
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: userMessage }] }],
-      systemInstruction: CLASSIFICATION_SYSTEM_PROMPT,
-      generationConfig: {
-        // Lower temperature = more reliable JSON
-        temperature: 0.1,
-
-        // Small output because we only expect structured JSON
-        maxOutputTokens: 256,
-      },
-    });
-
-    // Gemini returns plain text which should contain JSON
-    const rawText = result.response.text();
-
-    // Parse and validate Gemini's response
+  try {
+    const rawText = await callGeminiWithRetry(userMessage);
     return parseGeminiResponse(rawText, email);
 
-  } catch (err) {
-    /*
-    |--------------------------------------------------------------------------
-    | Gemini request failed
-    |--------------------------------------------------------------------------
-    |
-    | This could happen because of:
-    | • Network problems
-    | • API outage
-    | • Rate limits
-    |
-    | Rather than crashing, we return a safe fallback.
-    |
-    |--------------------------------------------------------------------------
-    */
-    // console.error("[email-parser] Gemini API call failed:", err);
+  } catch (err: any) {
 
-    logger.error("Gemini email classification failed", {
-      error: err,
+    // Log which email failed and why — visible in Railway logs
+    console.error("[email-parser] Gemini classification failed:", {
+      subject: email.subject,
+      from:    email.from,
+      error:   err?.message ?? String(err),
     });
 
-    return {
-      is_job_application: false,
-      company: null,
-      role: null,
-      confidence: "low",
-    };
+    // Determine if this is an API availability error or something else
+    const isApiError =
+      err?.message?.includes("503") ||
+      err?.message?.includes("Service Unavailable") ||
+      err?.message?.includes("high demand") ||
+      err?.message?.includes("GoogleGenerativeAI") ||
+      err?.message?.includes("timeout") ||
+      err?.message?.includes("fetch");
+
+    // Throw a typed error so the worker knows to quarantine this email.
+    // The quarantine service will retry it before end of day.
+    if (isApiError) {
+      throw new GeminiUnavailableError(err.message, "gemini_unavailable");
+    }
+
+    // Non-API error (unexpected) — also quarantine rather than silently drop
+    throw new GeminiUnavailableError(err.message, "gemini_parse_error");
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| parseGeminiResponse
-|--------------------------------------------------------------------------
-|
-| Converts Gemini's raw text into a structured object.
-|
-| Gemini is instructed to return JSON, but AI models sometimes return:
-|
-| • Markdown
-| • Code blocks
-| • Invalid JSON
-|
-| This helper cleans the response and safely parses it.
-|
-| It also contains an extra safety net:
-|
-| If Gemini incorrectly says an email is NOT a job application,
-| we perform our own checks using the subject and sender.
-|
-|--------------------------------------------------------------------------
-*/
 
-/**
- * Parses Gemini's response into a ParsedEmail object.
- *
- * @param rawText Raw response from Gemini.
- * @param email Original email used for heuristic fallback.
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// PARSE GEMINI RESPONSE
+//
+// Parses the raw text from Gemini into a typed ParsedEmail object.
+// Includes a heuristic override: if Gemini returned false but the
+// subject or sender clearly matches a known confirmation pattern,
+// we override to true with medium confidence.
+// ─────────────────────────────────────────────────────────────────────────────
+
 function parseGeminiResponse(
   rawText: string,
   email: EmailMetadata
 ): ParsedEmail {
 
-  /*
-  |--------------------------------------------------------------------------
-  | Remove Markdown formatting
-  |--------------------------------------------------------------------------
-  |
-  | Gemini sometimes wraps JSON inside:
-  |
-  | ```json
-  | { ... }
-  | ```
-  |
-  | We remove those markers first.
-  |
-  |--------------------------------------------------------------------------
-  */
+  // Strip any accidental markdown formatting Gemini might add
   const cleaned = rawText
     .replace(/```json\n?/g, "")
     .replace(/```\n?/g, "")
@@ -272,82 +268,31 @@ function parseGeminiResponse(
 
   let parsed: Record<string, unknown> | null = null;
 
-  /*
-  |--------------------------------------------------------------------------
-  | Try parsing the JSON
-  |--------------------------------------------------------------------------
-  */
   try {
     parsed = JSON.parse(cleaned);
-  } 
-  catch {
-    // console.error(
-    //   "[email-parser] Could not parse Gemini response as JSON:",
-    //   rawText
-    // );
-
-    logger.error("Failed to parse Gemini response as JSON", {
-      rawResponse: rawText,
-    });
+  } catch {
+    console.error("[email-parser] Could not parse Gemini response as JSON:", rawText);
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Gemini returned valid JSON
-  |--------------------------------------------------------------------------
-  */
-  if (
-    parsed &&
-    typeof parsed.is_job_application === "boolean"
-  ) {
+  if (parsed && typeof parsed.is_job_application === "boolean") {
 
     const result: ParsedEmail = {
       is_job_application: parsed.is_job_application as boolean,
-      company:
-        typeof parsed.company === "string"
-          ? parsed.company
-          : null,
-      role:
-        typeof parsed.role === "string"
-          ? parsed.role
-          : null,
+      company:    typeof parsed.company === "string" ? parsed.company : null,
+      role:       typeof parsed.role    === "string" ? parsed.role    : null,
       confidence: validateConfidence(parsed.confidence),
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | Safety override
-    |--------------------------------------------------------------------------
-    |
-    | Sometimes Gemini is overly cautious.
-    |
-    | If Gemini says:
-    |
-    |   "Not a job application"
-    |
-    | but our own subject/sender rules strongly suggest that it IS,
-    | we trust the heuristic instead.
-    |
-    |--------------------------------------------------------------------------
-    */
-    if (
-      !result.is_job_application &&
-      isObviousConfirmation(email)
-    ) {
-
-      // console.log(
-      //   "[email-parser] Heuristic override: Gemini returned false but subject/sender matched known confirmation patterns.",
-      //   {
-      //     subject: email.subject,
-      //     from: email.from,
-      //   }
-      // );
-
-      logger.info("Email classification overridden by heuristic", {
-        subject: email.subject,
-        from: email.from,
-      });
-
+    // Heuristic override:
+    // If Gemini returned false but the email clearly matches known confirmation
+    // patterns (subject line or ATS sender domain), trust the heuristic.
+    // This catches cases where Gemini was overly cautious with limited context.
+    if (!result.is_job_application && isObviousConfirmation(email)) {
+      console.log(
+        "[email-parser] Heuristic override: Gemini returned false but " +
+        "subject or sender matches known confirmation pattern — overriding to true",
+        { subject: email.subject, from: email.from }
+      );
       return {
         ...result,
         is_job_application: true,
@@ -358,51 +303,43 @@ function parseGeminiResponse(
     return result;
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Gemini response could not be parsed
-  |--------------------------------------------------------------------------
-  |
-  | Instead of giving up completely,
-  | use simple subject/sender matching.
-  |
-  |--------------------------------------------------------------------------
-  */
-  // console.warn(
-  //   "[email-parser] Gemini returned unparseable response, using heuristic fallback"
-  // );
-
-  logger.warn("Gemini returned unparseable response, using heuristic fallback");
+  // Gemini response was unparseable — use heuristic as final fallback
+  console.warn(
+    "[email-parser] Gemini returned unparseable response — falling back to heuristic",
+    { rawText }
+  );
 
   if (isObviousConfirmation(email)) {
     return {
       is_job_application: true,
-      company: extractCompanyFromSender(email.from),
-      role: null,
+      company:    extractCompanyFromSender(email.from),
+      role:       null,
       confidence: "medium",
     };
   }
 
+  // Cannot determine — return false (Gemini did respond, just unparseable)
   return {
     is_job_application: false,
-    company: null,
-    role: null,
+    company:    null,
+    role:       null,
     confidence: "low",
   };
 }
 
-/*
-|--------------------------------------------------------------------------
-| Known Applicant Tracking System (ATS) domains
-|--------------------------------------------------------------------------
-|
-| These companies provide recruiting software.
-|
-| Emails from these domains are very likely to be related to
-| job applications.
-|
-|--------------------------------------------------------------------------
-*/
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HEURISTIC: isObviousConfirmation
+//
+// Fast regex + ATS domain check used as a safety net in two places:
+//   1. When Gemini returns false but we suspect it's wrong
+//   2. When Gemini's JSON is unparseable
+//
+// Does NOT replace Gemini — only corrects obvious errors.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Known ATS email sender domains.
+// Emails from these domains almost always confirm a submitted application.
 const ATS_SENDER_DOMAINS = new Set([
   "greenhouse-mail.io",
   "greenhouse.io",
@@ -416,27 +353,19 @@ const ATS_SENDER_DOMAINS = new Set([
   "bamboohr.com",
   "taleo.net",
   "successfactors.com",
-  "recruiting.ultipro.com",
-  "hire.com",
-  "paylocity.com",
-  "paycom.com",
   "breezy.hr",
   "recruitee.com",
   "workable.com",
   "jazz.co",
   "pinpointhq.com",
   "teamtailor.com",
+  "paylocity.com",
+  "paycom.com",
+  "hire.com",
+  "applytojob.com",
 ]);
 
-/*
-|--------------------------------------------------------------------------
-| Subject line patterns
-|--------------------------------------------------------------------------
-|
-| These are phrases commonly found in real application confirmations.
-|
-|--------------------------------------------------------------------------
-*/
+// Subject line patterns that strongly indicate a job application confirmation
 const CONFIRMATION_SUBJECT_PATTERNS = [
   /thank you for applying/i,
   /thanks for applying/i,
@@ -453,76 +382,44 @@ const CONFIRMATION_SUBJECT_PATTERNS = [
   /application for .+ (at|with)/i,
 ];
 
-/**
- * Checks whether an email is obviously a job application
- * using simple rules instead of AI.
- *
- * Used as a safety net if Gemini makes a mistake.
- */
-function isObviousConfirmation(email: EmailMetadata): boolean {
+export function isObviousConfirmation(email: EmailMetadata): boolean {
 
-  /*
-  |--------------------------------------------------------------------------
-  | Step 1: Check the subject line
-  |--------------------------------------------------------------------------
-  */
-  const subjectMatches =
-    CONFIRMATION_SUBJECT_PATTERNS.some(
-      (pattern) => pattern.test(email.subject)
-    );
+  // Check subject line against known confirmation patterns
+  if (CONFIRMATION_SUBJECT_PATTERNS.some((pattern) => pattern.test(email.subject))) {
+    return true;
+  }
 
-  if (subjectMatches) return true;
-
-  /*
-  |--------------------------------------------------------------------------
-  | Step 2: Check sender domain
-  |--------------------------------------------------------------------------
-  */
+  // Check sender domain against known ATS platforms
   const emailMatch =
-    email.from.match(/<(.+)>/) ??
-    email.from.match(/(\S+@\S+)/);
+    email.from.match(/<(.+)>/) ?? email.from.match(/(\S+@\S+)/);
 
   if (emailMatch) {
+    const senderEmail  = emailMatch[1] ?? emailMatch[0];
+    const senderDomain = senderEmail.split("@")[1]?.toLowerCase() ?? "";
 
-    const senderEmail =
-      emailMatch[1] ?? emailMatch[0];
+    // Exact domain match
+    if (ATS_SENDER_DOMAINS.has(senderDomain)) return true;
 
-    const senderDomain =
-      senderEmail.split("@")[1]?.toLowerCase() ?? "";
-
-    // Exact match
-    if (ATS_SENDER_DOMAINS.has(senderDomain)) {
-      return true;
-    }
-
-    // Subdomain match
+    // Subdomain match (e.g. mail.greenhouse.io)
     for (const atsDomain of ATS_SENDER_DOMAINS) {
-      if (
-        senderDomain.endsWith(`.${atsDomain}`) ||
-        senderDomain === atsDomain
-      ) {
-        return true;
-      }
+      if (senderDomain.endsWith(`.${atsDomain}`)) return true;
     }
   }
 
   return false;
 }
 
-/*
-|--------------------------------------------------------------------------
-| ATS domains that should not become company names
-|--------------------------------------------------------------------------
-|
-| Example:
-|
-| no-reply@greenhouse-mail.io
-|
-| Company should NOT become:
-| Greenhouse
-|
-|--------------------------------------------------------------------------
-*/
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: extractCompanyFromSender
+//
+// Fallback used when Gemini does not extract the company name.
+// Tries to read the company from the email display name first
+// (e.g. "Imagine Pediatrics Recruiting <no-reply@greenhouse-mail.io>"),
+// then falls back to the sender domain.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ATS provider domains — these are NOT the company, skip to display name
 const ATS_DOMAINS_TO_SKIP = new Set([
   "greenhouse-mail.io",
   "greenhouse.io",
@@ -536,161 +433,76 @@ const ATS_DOMAINS_TO_SKIP = new Set([
   "bamboohr.com",
 ]);
 
-/**
- * Attempts to determine the company name from the sender.
- *
- * Used when Gemini couldn't identify the company.
- */
 export function extractCompanyFromSender(from: string): string {
 
-  const emailMatch =
-    from.match(/<(.+)>/) ??
-    from.match(/(\S+@\S+)/);
+  const emailMatch = from.match(/<(.+)>/) ?? from.match(/(\S+@\S+)/);
+  if (!emailMatch) return "Unknown Company";
 
-  if (!emailMatch) {
-    return "Unknown Company";
-  }
+  const emailAddress = emailMatch[1] ?? emailMatch[0];
+  const domain       = emailAddress.split("@")[1]?.toLowerCase() ?? "";
 
-  const emailAddress =
-    emailMatch[1] ?? emailMatch[0];
-
-  const domain =
-    emailAddress.split("@")[1]?.toLowerCase() ?? "";
-
-  /*
-  |--------------------------------------------------------------------------
-  | ATS email?
-  |--------------------------------------------------------------------------
-  |
-  | Try using the sender's display name instead.
-  |
-  |--------------------------------------------------------------------------
-  */
+  // If the sender is an ATS provider, try the display name instead
+  // e.g. "Imagine Pediatrics Recruiting <no-reply@greenhouse-mail.io>"
+  // → extract "Imagine Pediatrics" from the display name
   if (ATS_DOMAINS_TO_SKIP.has(domain)) {
-
-    const displayNameMatch =
-      from.match(/^([^<]+)</);
-
+    const displayNameMatch = from.match(/^([^<]+)</);
     if (displayNameMatch) {
-
-      const displayName =
-        displayNameMatch[1].trim();
-
-      return (
-        displayName
-          .replace(
-            /\s+(recruiting|careers|hr|hiring|team|jobs|noreply)$/i,
-            ""
-          )
-          .trim() || "Unknown Company"
-      );
+      const displayName = displayNameMatch[1].trim();
+      // Remove common suffixes that are not the company name
+      const cleaned = displayName
+        .replace(/\s+(recruiting|careers|hr|hiring|team|jobs|noreply|no-reply)$/i, "")
+        .trim();
+      if (cleaned) return cleaned;
     }
-
     return "Unknown Company";
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Extract company from domain
-  |--------------------------------------------------------------------------
-  |
-  | careers.google.com
-  |        ↓
-  | Google
-  |
-  |--------------------------------------------------------------------------
-  */
-  const parts = domain.split(".");
+  // Extract from domain: careers.google.com → Google
+  // jobs.amazon.co.uk → Amazon
+  const parts       = domain.split(".");
+  const companyPart = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
 
-  const companyPart =
-    parts.length >= 2
-      ? parts[parts.length - 2]
-      : parts[0];
-
-  return (
-    companyPart.charAt(0).toUpperCase() +
-    companyPart.slice(1)
-  );
+  return companyPart.charAt(0).toUpperCase() + companyPart.slice(1);
 }
 
-/*
-|--------------------------------------------------------------------------
-| validateConfidence
-|--------------------------------------------------------------------------
-|
-| Makes sure confidence is one of the three valid values.
-|
-| If Gemini returns anything unexpected,
-| default to "low".
-|
-|--------------------------------------------------------------------------
-*/
 
-/**
- * Validates Gemini's confidence level.
- */
-function validateConfidence(
-  raw: unknown
-): "high" | "medium" | "low" {
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: validateConfidence
+// Ensures the confidence value from Gemini is one of the expected values.
+// Defaults to "low" if Gemini returns something unexpected.
+// ─────────────────────────────────────────────────────────────────────────────
 
-  if (
-    raw === "high" ||
-    raw === "medium" ||
-    raw === "low"
-  ) {
-    return raw;
-  }
-
+function validateConfidence(raw: unknown): "high" | "medium" | "low" {
+  if (raw === "high" || raw === "medium" || raw === "low") return raw;
   return "low";
 }
 
-/*
-|--------------------------------------------------------------------------
-| classifyEmailBatch
-|--------------------------------------------------------------------------
-|
-| Classifies many emails one after another.
-|
-| A short pause is added between requests to reduce the chance of
-| hitting Gemini's rate limits.
-|
-|--------------------------------------------------------------------------
-*/
 
-/**
- * Classifies multiple emails.
- *
- * @param emails Emails to classify.
- * @returns Classification result for every email.
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// classifyEmailBatch
+// Processes a list of emails one at a time with a short pause between each.
+// Used for bulk historical email scanning.
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function classifyEmailBatch(
   emails: EmailMetadata[]
 ): Promise<Array<{ email: EmailMetadata; result: ParsedEmail }>> {
 
-  const results: Array<{
-    email: EmailMetadata;
-    result: ParsedEmail;
-  }> = [];
+  const results: Array<{ email: EmailMetadata; result: ParsedEmail }> = [];
 
-  // Process emails one at a time
   for (const email of emails) {
+    try {
+      const result = await classifyEmail(email);
+      results.push({ email, result });
+    } catch (err) {
+      // In batch mode, log and skip quarantined emails rather than stopping
+      console.warn(
+        "[email-parser] classifyEmailBatch: skipping email due to error:",
+        { subject: email.subject, error: (err as Error).message }
+      );
+    }
 
-    const result = await classifyEmail(email);
-
-    results.push({
-      email,
-      result,
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | Small delay
-    |--------------------------------------------------------------------------
-    |
-    | Helps avoid hitting Gemini's request limits.
-    |
-    |--------------------------------------------------------------------------
-    */
+    // 150ms pause between calls — prevents Gemini rate limiting on large batches
     await new Promise((r) => setTimeout(r, 150));
   }
 
