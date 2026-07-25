@@ -18,7 +18,10 @@ import type { EmailMetadata, ParsedEmail } from "../models/application.model";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
-const model = genAI.getGenerativeModel({ model: config.gemini.model });
+const model = genAI.getGenerativeModel(
+  { model: config.gemini.model },
+  { apiVersion: "v1" } 
+);
 
 
 // ─────────────────────────────────────────────────────────────────────────────
