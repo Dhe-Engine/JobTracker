@@ -215,8 +215,43 @@ export async function classifyEmail(
   email: EmailMetadata
 ): Promise<ParsedEmail> {
 
-  // Build the user message with full context.
-  // Truncate body to 2000 chars — enough for classification, keeps costs low.
+  // ── STAGE 1: Fast heuristic pre-check ──────────────────────────────────────
+  // Run cheap pattern matching BEFORE calling Gemini.
+  // This has two benefits:
+  //   1. Obvious non-job emails (deploy notifications, newsletters) are
+  //      discarded instantly without consuming any API quota.
+  //   2. Obvious job emails from known ATS domains are saved immediately
+  //      even when Gemini is unavailable.
+
+  const heuristicResult = runHeuristicPreCheck(email);
+
+  if (heuristicResult === "definitely_not_job") {
+    // Fast discard — no API call needed
+    console.log(
+      `[email-parser] Heuristic pre-check: definitely NOT a job email — skipping Gemini`,
+      { subject: email.subject, from: email.from }
+    );
+    return {
+      is_job_application: false,
+      company: null,
+      role: null,
+      confidence: "high",
+    };
+  }
+
+  if (heuristicResult === "definitely_job") {
+    // High confidence match — save without calling Gemini
+    // Still use Gemini when available to extract company/role accurately,
+    // but if Gemini fails we have enough to save the application anyway
+    console.log(
+      `[email-parser] Heuristic pre-check: definitely IS a job email — attempting Gemini for details`,
+      { subject: email.subject, from: email.from }
+    );
+    // Fall through to Gemini call below — but if Gemini fails,
+    // we catch it differently (return result instead of throwing)
+  }
+
+  // ── STAGE 2: Gemini classification ──────────────────────────────────────────
   const bodyPreview = email.body
     ? email.body.slice(0, 2000).trim()
     : "(no body content available)";
@@ -233,15 +268,12 @@ ${bodyPreview}`;
     return parseGeminiResponse(rawText, email);
 
   } catch (err: any) {
-
-    // Log which email failed and why — visible in Railway logs
     console.error("[email-parser] Gemini classification failed:", {
       subject: email.subject,
       from: email.from,
       error: err?.message ?? String(err),
     });
 
-    // Determine if this is an API availability error or something else
     const isApiError =
       err?.message?.includes("503") ||
       err?.message?.includes("Service Unavailable") ||
@@ -253,15 +285,130 @@ ${bodyPreview}`;
       err?.message?.includes("timeout") ||
       err?.message?.includes("fetch");
 
-    // Throw a typed error so the worker knows to quarantine this email.
-    // The quarantine service will retry it before end of day.
     if (isApiError) {
+      // ── If heuristic said "definitely_job", save it now rather than quarantine
+      // We already know it's a job email — we just don't have company/role details
+      if (heuristicResult === "definitely_job") {
+        console.log(
+          `[email-parser] Gemini failed but heuristic confirmed job email — saving with partial data`,
+          { subject: email.subject, from: email.from }
+        );
+        return {
+          is_job_application: true,
+          company: extractCompanyFromSender(email.from),
+          role: null,
+          confidence: "medium",
+        };
+      }
+
+      // ── Uncertain email + Gemini failed → quarantine for retry
       throw new GeminiUnavailableError(err.message, "gemini_unavailable");
     }
 
-    // Non-API error (unexpected) — also quarantine rather than silently drop
     throw new GeminiUnavailableError(err.message, "gemini_parse_error");
   }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HEURISTIC PRE-CHECK
+// Runs before any API call. Classifies emails into three buckets:
+//   "definitely_not_job" → discard immediately, no API call
+//   "definitely_job"     → save immediately if Gemini fails, still try Gemini for details
+//   "uncertain"          → needs Gemini to decide
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Patterns that are NEVER job application emails — discard immediately
+const DEFINITE_NON_JOB_PATTERNS = [
+  // Deployment and CI/CD notifications
+  /deploy (failed|succeeded|started)/i,
+  /deployment (failed|succeeded|complete)/i,
+  /build (failed|succeeded|complete)/i,
+  /pipeline (failed|succeeded)/i,
+
+  // Service and infrastructure alerts
+  /server (down|up|alert|warning)/i,
+  /uptime (alert|notification)/i,
+  /error rate/i,
+  /incident (opened|resolved|update)/i,
+
+  // Job search alerts (not confirmations)
+  /\d+ new jobs? (matching|for) /i,
+  /jobs? alert/i,
+  /recommended jobs?/i,
+  /new jobs? in /i,
+  /job recommendations/i,
+
+  // Newsletter and marketing
+  /unsubscribe/i,
+  /weekly digest/i,
+  /monthly newsletter/i,
+  /this week in /i,
+  /news(letter)? from /i,
+
+  // Recruiter cold outreach (not applied)
+  /i came across your profile/i,
+  /i found your profile/i,
+  /are you open to (new )?opportunities/i,
+  /exploring new opportunities/i,
+  /i('d| would) love to connect/i,
+] as const;
+
+// Sender domains that are NEVER job application senders
+const DEFINITE_NON_JOB_DOMAINS = new Set([
+  "mail.clever-cloud.com",      // Clever Cloud deployment notifications
+  "railway.app",                // Railway deployment notifications
+  "vercel.com",                 // Vercel deployment notifications
+  "github.com",                 // GitHub notifications
+  "notifications.github.com",
+  "heroku.com",                 // Heroku notifications
+  "render.com",                 // Render notifications
+  "netlify.com",                // Netlify notifications
+  "circleci.com",               // CI notifications
+  "travis-ci.com",
+  "linkedin.com",               // LinkedIn job alerts (not confirmations)
+  "linkedin.co.uk",
+  "e.linkedin.com",
+  "jobs.lever.co",              // Lever job alerts (not applications)
+  "indeed.com",                 // Indeed job alerts
+  "glassdoor.com",              // Glassdoor job alerts
+]);
+
+type HeuristicResult = "definitely_not_job" | "definitely_job" | "uncertain";
+
+function runHeuristicPreCheck(email: EmailMetadata): HeuristicResult {
+
+  // Extract the sender domain
+  const emailMatch =
+    email.from.match(/<(.+)>/) ?? email.from.match(/(\S+@\S+)/);
+  const senderDomain = emailMatch
+    ? (emailMatch[1] ?? emailMatch[0]).split("@")[1]?.toLowerCase() ?? ""
+    : "";
+
+  // ── Check for definite non-job senders ──────────────────────────────────
+  if (DEFINITE_NON_JOB_DOMAINS.has(senderDomain)) {
+    return "definitely_not_job";
+  }
+
+  // Check subdomain matches for non-job domains
+  for (const nonJobDomain of DEFINITE_NON_JOB_DOMAINS) {
+    if (senderDomain.endsWith(`.${nonJobDomain}`)) {
+      return "definitely_not_job";
+    }
+  }
+
+  // ── Check for definite non-job subject patterns ──────────────────────────
+  if (DEFINITE_NON_JOB_PATTERNS.some((p) => p.test(email.subject))) {
+    return "definitely_not_job";
+  }
+
+  // ── Check for definite job application signals ───────────────────────────
+  if (isObviousConfirmation(email)) {
+    return "definitely_job";
+  }
+
+  // ── Uncertain — needs Gemini to decide ───────────────────────────────────
+  return "uncertain";
 }
 
 
